@@ -15,7 +15,7 @@ import {
   rememberFailedCapture,
   removeFailedCapture,
   sanitizeFilePart
-} from "../src/travel-proof.js";
+} from "../src/출장비/travel-proof.js";
 
 const sampleTable = [
   "대리점명\tPOS코드\tPOS명\t유형요약\tPOS주소\t날짜\t시간",

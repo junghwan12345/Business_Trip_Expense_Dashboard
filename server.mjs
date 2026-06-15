@@ -2,9 +2,9 @@ import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
-import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/market-data.js";
-import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/coupang-proof.js";
-import { buildProofPptxBuffer } from "./src/proof-ppt-generator.js";
+import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/대시보드/market-data.js";
+import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/출장비/coupang-proof.js";
+import { buildProofPptxBuffer } from "./src/출장비/proof-ppt-generator.js";
 import {
   EXTRA_PROOF_FOLDER_ALIASES,
   groupProofImagesByDate,
@@ -12,14 +12,14 @@ import {
   pptFileBaseName,
   proofSubfolder,
   proofTypeFromFileName
-} from "./src/proof-ppt.js";
-import { DEFAULT_JSON_BODY_LIMIT, jsonBodyLimitForPath } from "./src/server-limits.js";
-import { resolveDefaultOutputRoot } from "./src/storage-root.js";
+} from "./src/출장비/proof-ppt.js";
+import { DEFAULT_JSON_BODY_LIMIT, jsonBodyLimitForPath } from "./src/공통/server-limits.js";
+import { resolveDefaultOutputRoot } from "./src/공통/storage-root.js";
 import {
   buildMonthlyProofGroups,
   parseTravelProofTable
-} from "./src/travel-proof.js";
-import { captureCoupangReceipts, captureNaverRoute, captureOilPriceProof } from "./src/naver-map-automation.js";
+} from "./src/출장비/travel-proof.js";
+import { captureCoupangReceipts, captureNaverRoute, captureOilPriceProof } from "./src/출장비/naver-map-automation.js";
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);

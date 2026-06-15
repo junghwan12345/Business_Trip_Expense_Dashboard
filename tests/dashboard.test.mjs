@@ -9,12 +9,12 @@ import {
   toggleHabitForDate,
   upsertStock,
   upsertTask
-} from "../src/dashboard-data.js";
+} from "../src/대시보드/dashboard-data.js";
 import {
   buildQuoteUrl,
   mapQuoteResponse,
   normalizeStockFailure
-} from "../src/stocks-api.js";
+} from "../src/대시보드/stocks-api.js";
 
 test("buildDashboardSummary counts today's open tasks and completed habits", () => {
   const state = createDefaultState("2026-05-25");

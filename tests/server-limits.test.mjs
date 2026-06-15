@@ -5,7 +5,7 @@ import {
   DEFAULT_JSON_BODY_LIMIT,
   PPT_JSON_BODY_LIMIT,
   jsonBodyLimitForPath
-} from "../src/server-limits.js";
+} from "../src/공통/server-limits.js";
 
 test("ppt-build allows larger JSON bodies for selected-folder image uploads", () => {
   assert.equal(jsonBodyLimitForPath("/api/travel-proof/ppt-build"), PPT_JSON_BODY_LIMIT);
