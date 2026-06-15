@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>개인 대시보드</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">PD</div>
+          <div>
+            <strong>개인</strong>
+            <span>대시보드</span>
+          </div>
+        </div>
+
+        <label class="search-box">
+          <span>검색</span>
+          <input id="globalSearch" type="search" placeholder="일정, 메모, 종목 검색" />
+        </label>
+
+        <nav class="nav-list" aria-label="주요 메뉴">
+          <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon">DB</span>대시보드</button>
+          <button class="nav-item" data-view="calendar"><span class="nav-icon">CA</span>달력</button>
+          <button class="nav-item" data-view="today"><span class="nav-icon">TD</span>오늘</button>
+          <button class="nav-item" data-view="stocks"><span class="nav-icon">ST</span>시장</button>
+          <button class="nav-item" data-view="habits"><span class="nav-icon">HB</span>습관</button>
+          <button class="nav-item" data-view="settings"><span class="nav-icon">SE</span>설정</button>
+        </nav>
+
+        <div class="profile-card">
+          <span class="avatar">나</span>
+          <div>
+            <strong>로컬 프로필</strong>
+            <span>이 PC에 저장됨</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="dateLabel">오늘</p>
+            <h1 id="viewTitle">대시보드</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="icon-button" id="refreshQuotes" title="시세 새로고침">R</button>
+            <button class="primary-button" id="addTaskFocus">할 일 추가</button>
+          </div>
+        </header>
+
+        <section class="status-strip" id="summaryCards"></section>
+
+        <section class="view-stack">
+          <section class="view is-visible" id="view-dashboard">
+            <div class="dashboard-toolbar">
+              <div>
+                <p class="eyebrow">홈 편집</p>
+                <h2>원하는 크기와 순서로 배치</h2>
+              </div>
+              <div class="topbar-actions">
+                <button class="secondary-button" id="toggleLayoutLock" type="button">배치 잠금</button>
+                <button class="secondary-button" id="resetDashboardLayout" type="button">배치 초기화</button>
+              </div>
+            </div>
+            <div class="hidden-widget-tray" id="hiddenWidgets"></div>
+
+            <div class="dashboard-board" id="dashboardBoard">
+              <section class="panel dashboard-widget market-overview-panel" data-dashboard-widget="indices">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">시장 요약</p>
+                    <h2>주요 지수</h2>
+                  </div>
+                  <span class="soft-badge">코스피 · 코스닥 · S&P 500 · 나스닥</span>
+                </div>
+                <div class="widget-controls" data-widget-controls="indices"></div>
+                <div class="index-grid" id="mainIndexGrid"></div>
+              </section>
+
+              <section class="panel dashboard-widget dashboard-calendar-widget" data-dashboard-widget="calendar">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">달력</p>
+                    <h2 id="homeCalendarLabel">이번 달</h2>
+                  </div>
+                  <button class="secondary-button" type="button" data-open-view="calendar">전체 달력</button>
+                </div>
+                <div class="widget-controls" data-widget-controls="calendar"></div>
+                <div class="mini-calendar-grid" id="homeCalendarGrid"></div>
+                <form class="mini-event-form" id="homeEventForm">
+                  <input id="homeEventTitle" type="text" placeholder="선택한 날짜에 일정 추가" />
+                  <button type="submit">추가</button>
+                </form>
+              </section>
+
+              <section class="panel dashboard-widget today-panel" data-dashboard-widget="tasks">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">오늘</p>
+                    <h2>일정과 할 일</h2>
+                  </div>
+                  <span class="soft-badge" id="taskCounter"></span>
+                </div>
+                <div class="widget-controls" data-widget-controls="tasks"></div>
+                <form class="inline-form" id="taskForm">
+                  <input id="taskTitle" type="text" placeholder="오늘 할 일을 입력하세요" required />
+                  <select id="taskPriority" aria-label="우선순위">
+                    <option value="high">높음</option>
+                    <option value="medium" selected>보통</option>
+                    <option value="low">낮음</option>
+                  </select>
+                  <button type="submit">추가</button>
+                </form>
+                <div class="task-list" id="taskList"></div>
+              </section>
+
+              <section class="panel dashboard-widget stock-focus-panel" data-dashboard-widget="stock">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">종목 상세</p>
+                    <h2 id="selectedStockTitle">선택 종목</h2>
+                  </div>
+                  <span class="soft-badge" id="quoteStatus">새로고침 필요</span>
+                </div>
+                <div class="widget-controls" data-widget-controls="stock"></div>
+                <div class="quote-hero" id="quoteHero"></div>
+                <div class="chart-card">
+                  <svg id="stockChart" viewBox="0 0 640 220" role="img" aria-label="주식 추세 차트"></svg>
+                </div>
+              </section>
+
+              <section class="panel dashboard-widget" data-dashboard-widget="events">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">오늘 일정</p>
+                    <h2>달력 일정</h2>
+                  </div>
+                </div>
+                <div class="widget-controls" data-widget-controls="events"></div>
+                <div id="todayEvents"></div>
+              </section>
+
+              <section class="panel dashboard-widget" data-dashboard-widget="notes">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">빠른 메모</p>
+                    <h2>생각 기록</h2>
+                  </div>
+                </div>
+                <div class="widget-controls" data-widget-controls="notes"></div>
+                <form class="note-form" id="noteForm">
+                  <input id="noteTitle" type="text" placeholder="메모 제목" required />
+                  <textarea id="noteBody" placeholder="생각, 결정, 시장 체크 내용을 짧게 기록하세요" required></textarea>
+                  <button type="submit">메모 저장</button>
+                </form>
+                <div class="note-list" id="noteList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="view-calendar">
+            <div class="content-grid">
+              <section class="panel calendar-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">월별 달력</p>
+                    <h2 id="calendarLabel">달력</h2>
+                  </div>
+                  <div class="segmented compact">
+                    <button id="prevMonth" type="button">이전</button>
+                    <button id="thisMonth" type="button">오늘</button>
+                    <button id="nextMonth" type="button">다음</button>
+                  </div>
+                </div>
+                <div class="calendar-weekdays">
+                  <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+                </div>
+                <div class="calendar-grid" id="calendarGrid"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">일정 관리</p>
+                    <h2 id="selectedDateTitle">선택 날짜</h2>
+                  </div>
+                </div>
+                <form class="event-form" id="eventForm">
+                  <input id="eventId" type="hidden" />
+                  <input id="eventDate" type="date" required />
+                  <input id="eventTime" type="time" />
+                  <input id="eventTitle" type="text" placeholder="일정 제목" required />
+                  <textarea id="eventMemo" placeholder="메모"></textarea>
+                  <select id="eventColor" aria-label="일정 색상">
+                    <option value="blue">파랑</option>
+                    <option value="green">초록</option>
+                    <option value="red">빨강</option>
+                    <option value="gray">회색</option>
+                  </select>
+                  <button type="submit">일정 저장</button>
+                  <button class="secondary-button" id="clearEventForm" type="button">입력 초기화</button>
+                </form>
+                <div class="event-list" id="selectedEventList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="view-today">
+            <div class="single-column" id="todayView"></div>
+          </section>
+
+          <section class="view" id="view-stocks">
+            <div class="content-grid">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">관심 목록</p>
+                    <h2>주식과 지수</h2>
+                  </div>
+                </div>
+                <div class="segmented" id="marketFilters">
+                  <button class="is-active" type="button" data-market-filter="ALL">전체</button>
+                  <button type="button" data-market-filter="KR">한국주식</button>
+                  <button type="button" data-market-filter="US">미국주식</button>
+                  <button type="button" data-market-filter="INDEX">지수</button>
+                </div>
+                <form class="inline-form stock-form" id="stockForm">
+                  <input id="stockSymbol" type="text" placeholder="티커 예: 005930, 035720, AAPL" maxlength="16" required />
+                  <select id="stockMarket" aria-label="시장">
+                    <option value="KOSPI" selected>코스피</option>
+                    <option value="KOSDAQ">코스닥</option>
+                    <option value="US">미국</option>
+                  </select>
+                  <input id="stockName" type="text" placeholder="회사명" />
+                  <button type="submit">추가</button>
+                </form>
+                <div class="stock-table" id="stockTable"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">상세</p>
+                    <h2 id="stockDetailTitle">선택 종목</h2>
+                  </div>
+                </div>
+                <div id="stockDetail"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="view-habits">
+            <div class="single-column">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">습관</p>
+                    <h2>오늘의 체크리스트</h2>
+                  </div>
+                </div>
+                <div class="habit-grid habit-grid-wide" id="habitViewList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="view-settings">
+            <div class="single-column">
+              <section class="panel settings-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">설정</p>
+                    <h2>로컬 우선 저장</h2>
+                  </div>
+                </div>
+                <p>
+                  할 일, 일정, 습관, 메모, 관심 종목, 지수, 시세 캐시는 현재 브라우저의 IndexedDB에 저장됩니다.
+                  홈 위젯의 크기와 순서도 이 브라우저에 저장됩니다.
+                </p>
+                <div class="settings-actions">
+                  <button class="secondary-button" id="exportData" type="button">데이터 백업</button>
+                  <button class="secondary-button" id="importDataButton" type="button">데이터 가져오기</button>
+                  <button class="secondary-button" id="resetDashboardLayoutSettings" type="button">위젯 배치 초기화</button>
+                  <button class="danger-button" id="resetData" type="button">샘플 데이터 초기화</button>
+                  <input id="importDataInput" type="file" accept="application/json" hidden />
+                </div>
+              </section>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./src/app.js?v=20260525-dashboard-layout"></script>
+  </body>
+</html>

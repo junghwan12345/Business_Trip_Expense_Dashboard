@@ -1,0 +1,390 @@
+﻿[06/12/2026 10:42:18]
+오류 있는 응용 프로그램 이름: LGTimeManager.exe, 버전: 1.0.0.0, 타임스탬프로: 0x5f60265d
+오류 있는 모듈 이름: unknown, 버전: 0.0.0.0, 타임스탬프: 0x00000000
+예외 코드: 0xc0000005
+오류 오프셋: 0x00ec2ff8
+오류 처리 ID: 0x1638
+오류 응용 프로그램 시작 시간: 0x1DCFA0CB34D3366
+Faulting 응용 프로그램 경로: C:\Program Files (x86)\LG Software\LG Time Manager\LGTimeManager.exe
+Faulting 모듈 경로: unknown
+Report Id: 5355e3d7-a0c3-4c15-b680-21440850857d
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/12/2026 10:42:18]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x15A8
+오류 응용 프로그램 시작 시간: 0x1DCFA0CB34B2D3F
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 383506a1-9490-4d46-8c7b-10a2c9343431
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/12/2026 09:07:13]
+오류 있는 응용 프로그램 이름: node.exe, 버전: 24.13.0.0, 타임스탬프로: 0x6965436d
+오류 있는 모듈 이름: node.exe, 버전: 24.13.0.0, 타임스탬프: 0x6965436d
+예외 코드: 0xc0000409
+오류 오프셋: 0x00000000021d46e9
+오류 처리 ID: 0x9364
+오류 응용 프로그램 시작 시간: 0x1DCF9FF5F4AF69E
+Faulting 응용 프로그램 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Faulting 모듈 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Report Id: 084032bf-b08a-4f70-908b-2e983b115010
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/12/2026 09:05:51]
+오류 있는 응용 프로그램 이름: node.exe, 버전: 24.13.0.0, 타임스탬프로: 0x6965436d
+오류 있는 모듈 이름: node.exe, 버전: 24.13.0.0, 타임스탬프: 0x6965436d
+예외 코드: 0xc0000409
+오류 오프셋: 0x00000000021d46e9
+오류 처리 ID: 0x64D4
+오류 응용 프로그램 시작 시간: 0x1DCF9FF3434E65C
+Faulting 응용 프로그램 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Faulting 모듈 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Report Id: 008e60d1-7094-47e2-ac47-81f88fe9d878
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 13:17:11]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x156C
+오류 응용 프로그램 시작 시간: 0x1DCF9592C0D86E6
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 6690f7ac-d999-4176-80c0-ad9d6ac0a4e1
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:53:48]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x15AC
+오류 응용 프로그램 시작 시간: 0x1DCF9452495A0B5
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: d17f77d2-b012-4a83-8584-c7f3a2d8c32e
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:52:55]
+오류 있는 응용 프로그램 이름: TCubeObserver64.exe, 버전: 3.3.3.5, 타임스탬프로: 0x658b7d91
+오류 있는 모듈 이름: TMWatermark64.dll_unloaded, 버전: 3.1.1.8, 타임스탬프: 0x65727a2f
+예외 코드: 0xc0000005
+오류 오프셋: 0x0000000000005059
+오류 처리 ID: 0x387C
+오류 응용 프로그램 시작 시간: 0x1DCF941C3DD64DE
+Faulting 응용 프로그램 경로: C:\Windows\Teruten\TCube\TCubeObserver64.exe
+Faulting 모듈 경로: TMWatermark64.dll
+Report Id: f719fb7f-fa43-4b9c-b3c8-d79d7c6b5089
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:33:50]
+오류 있는 응용 프로그램 이름: node.exe, 버전: 24.13.0.0, 타임스탬프로: 0x6965436d
+오류 있는 모듈 이름: node.exe, 버전: 24.13.0.0, 타임스탬프: 0x6965436d
+예외 코드: 0xc0000409
+오류 오프셋: 0x00000000021d46e9
+오류 처리 ID: 0x3540
+오류 응용 프로그램 시작 시간: 0x1DCF94254871527
+Faulting 응용 프로그램 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Faulting 모듈 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Report Id: 3020e9a9-3928-4b53-9d3a-6991b4e8f3ba
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:31:56]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0x3E20
+오류 응용 프로그램 시작 시간: 0x1DCF942097C4961
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: c43b03ef-fe91-46e8-8f0f-6cd3bd35b36b
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:29:25]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x15C4
+오류 응용 프로그램 시작 시간: 0x1DCF941BC3DE4A5
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 27833279-2f79-455d-9b60-99581580ec7f
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:15:21]
+오류 있는 응용 프로그램 이름: node.exe, 버전: 24.13.0.0, 타임스탬프로: 0x6965436d
+오류 있는 모듈 이름: node.exe, 버전: 24.13.0.0, 타임스탬프: 0x6965436d
+예외 코드: 0xc0000409
+오류 오프셋: 0x00000000021d46e9
+오류 처리 ID: 0x4140
+오류 응용 프로그램 시작 시간: 0x1DCF93FBCB38A95
+Faulting 응용 프로그램 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Faulting 모듈 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Report Id: da0382fa-bfc4-40ad-b8bf-83a6262a2714
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:13:29]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0x1A48
+오류 응용 프로그램 시작 시간: 0x1DCF93F806BF6DB
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: f7d50d6e-ce10-4d7b-b2c6-84f7da319f85
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:11:03]
+오류 있는 응용 프로그램 이름: TCubeObserver64.exe, 버전: 3.3.3.5, 타임스탬프로: 0x658b7d91
+오류 있는 모듈 이름: TMWatermark64.dll_unloaded, 버전: 3.1.1.8, 타임스탬프: 0x65727a2f
+예외 코드: 0xc0000005
+오류 오프셋: 0x0000000000005059
+오류 처리 ID: 0x29C0
+오류 응용 프로그램 시작 시간: 0x1DCF93F28C07EDB
+Faulting 응용 프로그램 경로: C:\Windows\Teruten\TCube\TCubeObserver64.exe
+Faulting 모듈 경로: TMWatermark64.dll
+Report Id: 817a0f56-3b27-4c17-99e3-5c07708cd1e6
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 10:01:36]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x1578
+오류 응용 프로그램 시작 시간: 0x1DCF93DD9D64BA4
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 0704b7ff-344e-4064-b7b2-ecf465dc075c
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 09:01:01]
+오류 있는 응용 프로그램 이름: node.exe, 버전: 24.13.0.0, 타임스탬프로: 0x6965436d
+오류 있는 모듈 이름: node.exe, 버전: 24.13.0.0, 타임스탬프: 0x6965436d
+예외 코드: 0xc0000409
+오류 오프셋: 0x00000000021d46e9
+오류 처리 ID: 0x5744
+오류 응용 프로그램 시작 시간: 0x1DCF9355E0519EC
+Faulting 응용 프로그램 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Faulting 모듈 경로: C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe
+Report Id: 7264ff1f-0919-4227-b0f2-dceefe8ca966
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 08:57:56]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0x67EC
+오류 응용 프로그램 시작 시간: 0x1DCF934F232F293
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: 41650483-3152-48be-b095-b7a3d6b6902f
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:44:17]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x1558
+오류 응용 프로그램 시작 시간: 0x1DCF909237E14DD
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 12497426-ecd2-4995-85ed-39fd641da1dd
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:43:26]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x163C
+오류 응용 프로그램 시작 시간: 0x1DCF9090533F69D
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: a47249ad-72c0-49cb-bddb-39a8ca8c18ed
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:41:27]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x199C
+오류 응용 프로그램 시작 시간: 0x1DCF908BE59A1FE
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: f7ff8b72-c3b4-479d-a21e-e1fc617e4564
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:34:48]
+오류 있는 응용 프로그램 이름: TCubeObserver64.exe, 버전: 3.3.3.5, 타임스탬프로: 0x658b7d91
+오류 있는 모듈 이름: TMWatermark64.dll_unloaded, 버전: 3.1.1.8, 타임스탬프: 0x65727a2f
+예외 코드: 0xc0000005
+오류 오프셋: 0x00000000000053b0
+오류 처리 ID: 0x8414
+오류 응용 프로그램 시작 시간: 0x1DCF907D04D0D74
+Faulting 응용 프로그램 경로: C:\Windows\Teruten\TCube\TCubeObserver64.exe
+Faulting 모듈 경로: TMWatermark64.dll
+Report Id: 5bf9e492-bcbb-46d1-9d73-520f47312ce4
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:34:38]
+오류 있는 응용 프로그램 이름: TCubeObserver64.exe, 버전: 3.3.3.5, 타임스탬프로: 0x658b7d91
+오류 있는 모듈 이름: TMWatermark64.dll_unloaded, 버전: 3.1.1.8, 타임스탬프: 0x65727a2f
+예외 코드: 0xc0000005
+오류 오프셋: 0x00000000000055e1
+오류 처리 ID: 0xD700
+오류 응용 프로그램 시작 시간: 0x1DCF907C822B688
+Faulting 응용 프로그램 경로: C:\Windows\Teruten\TCube\TCubeObserver64.exe
+Faulting 모듈 경로: TMWatermark64.dll
+Report Id: 985b57c3-bdcd-42c5-8886-b31eedfcbae1
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/11/2026 03:34:29]
+오류 있는 응용 프로그램 이름: TCubeObserver64.exe, 버전: 3.3.3.5, 타임스탬프로: 0x658b7d91
+오류 있는 모듈 이름: TMWatermark64.dll_unloaded, 버전: 3.1.1.8, 타임스탬프: 0x65727a2f
+예외 코드: 0xc0000005
+오류 오프셋: 0x00000000000053b0
+오류 처리 ID: 0x3C7C
+오류 응용 프로그램 시작 시간: 0x1DCF70DE08D4303
+Faulting 응용 프로그램 경로: C:\Windows\Teruten\TCube\TCubeObserver64.exe
+Faulting 모듈 경로: TMWatermark64.dll
+Report Id: a16e9cee-4355-4959-9fd4-d7d0fb217fe3
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/09/2026 03:34:46]
+오류 있는 응용 프로그램 이름: bad_module_info, 버전: 0.0.0.0, 타임스탬프로: 0x00000000
+오류 있는 모듈 이름: unknown, 버전: 0.0.0.0, 타임스탬프: 0x00000000
+예외 코드: 0x00000000
+오류 오프셋: 0x0000000000000000
+오류 처리 ID: 0xA8B0
+오류 응용 프로그램 시작 시간: 0x1DCF7728C40FFEE
+Faulting 응용 프로그램 경로: bad_module_info
+Faulting 모듈 경로: unknown
+Report Id: f656a6ba-920e-46b7-8b87-8ee9ee2a515a
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/08/2026 15:12:57]
+오류 있는 응용 프로그램 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프로: 0x6661efdd
+오류 있는 모듈 이름: IntelProviderDataHelperService.exe, 버전: 3.1024.606.10, 타임스탬프: 0x6661efdd
+예외 코드: 0xc0000409
+오류 오프셋: 0x000000000006fb51
+오류 처리 ID: 0x15C4
+오류 응용 프로그램 시작 시간: 0x1DCF70DD8EAF557
+Faulting 응용 프로그램 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Faulting 모듈 경로: C:\Windows\System32\drivers\Intel\ICPS\IntelProviderDataHelperService.exe
+Report Id: 34fa5e3d-4dce-4eca-a4d5-073b0645a20e
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/08/2026 10:13:49]
+오류 있는 응용 프로그램 이름: bad_module_info, 버전: 0.0.0.0, 타임스탬프로: 0x00000000
+오류 있는 모듈 이름: unknown, 버전: 0.0.0.0, 타임스탬프: 0x00000000
+예외 코드: 0x00000000
+오류 오프셋: 0x0000000000000000
+오류 처리 ID: 0x396C
+오류 응용 프로그램 시작 시간: 0x1DCF6E3A9D693B5
+Faulting 응용 프로그램 경로: bad_module_info
+Faulting 모듈 경로: unknown
+Report Id: 9adf1eef-d498-4046-b381-9010a9468f04
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/08/2026 09:35:10]
+오류 있는 응용 프로그램 이름: bad_module_info, 버전: 0.0.0.0, 타임스탬프로: 0x00000000
+오류 있는 모듈 이름: unknown, 버전: 0.0.0.0, 타임스탬프: 0x00000000
+예외 코드: 0xc0000005
+오류 오프셋: 0x00007ff90db0256a
+오류 처리 ID: 0x24AC
+오류 응용 프로그램 시작 시간: 0x1DCF6DE426A720D
+Faulting 응용 프로그램 경로: bad_module_info
+Faulting 모듈 경로: unknown
+Report Id: c6faa34c-f0fe-4ebf-811f-6a4b1a74e2de
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/04/2026 16:09:14]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0xB3C8
+오류 응용 프로그램 시작 시간: 0x1DCF3F1096CE3DA
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: e64b0648-26df-4da5-a2da-907c031cdc93
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/04/2026 16:02:58]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0x9598
+오류 응용 프로그램 시작 시간: 0x1DCF3F0294C4EB5
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: 91cd89d4-f82d-4983-ac78-05eba6d0af4c
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/04/2026 11:54:19]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0xCB00
+오류 응용 프로그램 시작 시간: 0x1DCF3CD6D37ED20
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: a44410f3-32f7-4fc0-8727-696fa5f93019
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------
+[06/04/2026 11:49:22]
+오류 있는 응용 프로그램 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프로: 0x5dbcbadc
+오류 있는 모듈 이름: laclient.exe, 버전: 2.0.209.0, 타임스탬프: 0x5dbcbadc
+예외 코드: 0xc0000409
+오류 오프셋: 0x0000000000104c07
+오류 처리 ID: 0x4BE0
+오류 응용 프로그램 시작 시간: 0x1DCF3CCBBB346F1
+Faulting 응용 프로그램 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Faulting 모듈 경로: C:\ProgramData\Logishrd\LogiPresentation\Software\2.10.34\laclient\laclient.exe
+Report Id: 428a9fc5-8e3a-4ef3-b447-334d59c4ced7
+Faulting 패키지 전체 이름: 
+Faulting 패키지 상대 응용 프로그램 ID:  
+------

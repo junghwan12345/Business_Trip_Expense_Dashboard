@@ -1,0 +1,20 @@
+# 크래시 덤프 파일
+*.dmp
+
+# 크롬 프로파일 (로컬 브라우저 세션 데이터)
+chrome-naver-map-profile/
+chrome-travel-proof-profile/
+
+# 로그 파일
+*.log
+
+# 노드 모듈
+node_modules/
+
+# 빌드 산출물
+dist/
+.dist/
+
+# OS 파일
+.DS_Store
+Thumbs.db

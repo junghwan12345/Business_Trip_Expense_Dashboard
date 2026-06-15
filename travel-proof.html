@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>출장비 증빙 도구</title>
+    <link rel="stylesheet" href="./src/travel-proof.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">T</div>
+          <div>
+            <strong>출장비 증빙</strong>
+            <span>Proof Dashboard</span>
+          </div>
+        </div>
+
+        <nav class="side-nav" aria-label="기능 메뉴">
+          <button class="nav-item active" type="button" data-page-target="distance">거리·유류대</button>
+          <button class="nav-item" type="button" data-page-target="coupang">조활비·소모품비</button>
+          <button class="nav-item" type="button" data-page-target="ppt">지출결의서 PPT</button>
+          <button class="nav-item" type="button" data-page-target="storage">저장자료</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span>현재 상태</span>
+          <strong id="browserStatus">준비됨</strong>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Expense Proof Automation</p>
+            <h1>출장비 증빙 작업대</h1>
+          </div>
+          <div class="topbar-controls">
+            <label>
+              보기 연도
+              <input id="yearInput" type="number" min="2020" max="2100" />
+            </label>
+            <label>
+              보기 월
+              <input id="monthInput" type="number" min="1" max="12" />
+            </label>
+            <button class="secondary-button" id="chooseFolderButton" type="button">저장 폴더 선택</button>
+          </div>
+        </header>
+        <details class="advanced-settings">
+          <summary>날짜 기준 고급 설정</summary>
+          <p class="folder-label">보기 연도와 보기 월은 자동으로 현재 날짜를 사용합니다. 다른 월 자료를 만들 때만 위 설정을 조정합니다.</p>
+        </details>
+        <section class="drive-guide">
+          <strong>Google Drive 기본 저장</strong>
+          <p>Google Drive 데스크톱 동기화 폴더의 출장비증빙 폴더를 기본 저장소로 사용합니다.</p>
+          <p>거리캡처, 유가캡처, 추가증빙, 조활비와 소모품비 쿠팡 캡처본도 같은 월 폴더 아래에 저장됩니다.</p>
+          <p>추가증빙 예시: 추가증빙/2026-05-19/영수증.jpg 또는 추가증빙/26-05-19 주차영수증.jpg</p>
+          <p>동기화가 끝난 뒤 PPT 생성 버튼을 누르면 저장된 자료를 분석해 지출결의서 PPT를 만듭니다.</p>
+        </section>
+
+        <p class="folder-label top-folder" id="folderLabel">저장 폴더가 선택되지 않았습니다.</p>
+
+        <section class="page active" data-page-panel="distance">
+          <div class="summary-grid">
+            <article class="stat-card">
+              <span>출장 목록</span>
+              <strong id="previewCount">현지방 0건 / 출장 0건</strong>
+              <small>총 0건</small>
+            </article>
+            <article class="stat-card">
+              <span>캡처결과</span>
+              <strong id="captureResultSummary">0%</strong>
+              <small id="captureResultDetail">성공 0건 · 실패 0건</small>
+              <progress id="progressBar" max="1" value="0" hidden></progress>
+            </article>
+            <article class="stat-card">
+              <span>실패 재처리</span>
+              <button class="secondary-button compact" id="retryFailedButton" type="button" disabled>실패건만 재실행</button>
+            </article>
+            <article class="stat-card">
+              <span>유류대 결과</span>
+              <button class="secondary-button compact" id="copyFuelOutputButton" type="button" disabled>복사</button>
+            </article>
+          </div>
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>출장 데이터 입력</h2>
+                <button class="primary-button" id="runButton" type="button" disabled>캡처 시작</button>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  출발지
+                  <input id="startInput" type="text" placeholder="예: 태왕디아너스오페라" />
+                </label>
+                <label>
+                  도착지
+                  <input id="destinationInput" type="text" placeholder="예: 태왕디아너스오페라" />
+                </label>
+              </div>
+
+              <label class="table-paste-label">
+                <span class="label-row">
+                  현지방 엑셀표 붙여넣기
+                  <button class="ghost-button compact" id="loadSampleButton" type="button">샘플 넣기</button>
+                </span>
+                <textarea id="tableInput" spellcheck="false" placeholder="대리점명	POS코드	POS명	유형요약	POS주소	날짜	시간"></textarea>
+              </label>
+
+              <div class="manual-box">
+                <div class="manual-heading">
+                  <h3>수동 경유지 추가</h3>
+                  <button class="secondary-button compact" id="addManualWaypointButton" type="button">수동 항목 추가</button>
+                </div>
+                <p class="folder-label">엑셀표에 없는 출장지를 날짜별 별도 항목으로 추가합니다.</p>
+                <label>
+                  날짜
+                  <input id="manualDateSelect" type="date" />
+                </label>
+                <label>
+                  경유지 1
+                  <input id="manualWaypoint1Input" type="text" placeholder="예: 대구 진석타워 주차장" />
+                </label>
+                <label>
+                  경유지 2
+                  <input id="manualWaypoint2Input" type="text" placeholder="선택 입력" />
+                </label>
+              </div>
+
+              <button class="secondary-button" id="previewButton" type="button" hidden>미리보기</button>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>날짜별 경유지</h2>
+                <div class="calendar-controls">
+                  <button class="secondary-button compact" id="prevMonthButton" type="button">‹</button>
+                  <strong id="calendarMonthLabel">-</strong>
+                  <button class="secondary-button compact" id="nextMonthButton" type="button">›</button>
+                  <button class="ghost-button compact" id="todayMonthButton" type="button">이번 달</button>
+                </div>
+              </div>
+              <div class="month-notice" id="crossMonthNotice"></div>
+              <div class="calendar-grid" id="previewList"></div>
+            </section>
+          </div>
+
+          <section class="panel result-panel">
+            <div class="panel-heading">
+              <h2>캡처 실행 결과</h2>
+            </div>
+            <div class="result-grid">
+              <div>
+                <h3>성공</h3>
+                <ul id="successList"></ul>
+              </div>
+              <div>
+                <h3>오류</h3>
+                <ul id="errorList"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel paste-output">
+            <div class="panel-heading">
+              <h2>유류대 엑셀 붙여넣기 결과</h2>
+              <button class="secondary-button" type="button" onclick="document.querySelector('#copyFuelOutputButton').click()">복사</button>
+            </div>
+            <textarea id="fuelOutput" readonly spellcheck="false" placeholder="캡처가 완료되면 엑셀에 바로 붙여넣을 유류대 행이 여기에 만들어집니다."></textarea>
+          </section>
+        </section>
+
+        <section class="page" data-page-panel="coupang">
+          <div class="summary-grid">
+            <article class="stat-card"><span>조활비 총한도</span><strong id="welfareLimitCard">150,000원</strong></article>
+            <article class="stat-card"><span>조활비 잔액</span><strong id="welfareRemainingCard">150,000원</strong></article>
+            <article class="stat-card"><span>소모품비 총한도</span><strong id="supplyLimitCard">50,000원</strong></article>
+            <article class="stat-card"><span>소모품비 잔액</span><strong id="supplyRemainingCard">50,000원</strong></article>
+          </div>
+
+          <section class="panel coupang-panel">
+            <div class="panel-heading">
+              <h2>쿠팡 거래명세서 캡처</h2>
+              <button class="primary-button" id="runCoupangButton" type="button">쿠팡 거래명세서 캡처 시작</button>
+            </div>
+            <p class="folder-label">쿠팡에 로그인된 자동화 Chrome에서 마이쿠팡 주문목록 기준으로 날짜별 거래명세서를 캡처합니다.</p>
+            <div class="form-grid">
+              <label>
+                조활비 인원 수
+                <input id="coupangPeopleInput" type="number" min="1" value="3" />
+              </label>
+              <label>
+                캡처 날짜
+                <textarea id="coupangDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
+              </label>
+            </div>
+            <input id="settingsSupplyLimitInput" type="hidden" value="50000" />
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>쿠팡 처리 결과</h2>
+            </div>
+            <div class="result-grid">
+              <div>
+                <h3>저장 결과</h3>
+                <ul id="coupangResultList"></ul>
+              </div>
+              <div>
+                <h3>실패 목록</h3>
+                <ul id="coupangErrorList"></ul>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page-panel="ppt">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>지출결의서 PPT 생성</h2>
+              <div class="actions">
+                <button class="secondary-button" id="previewPptButton" type="button">PPT 미리보기</button>
+                <button class="primary-button" id="createPptButton" type="button">PPT 생성</button>
+              </div>
+            </div>
+            <p class="folder-label" id="pptStatus">선택한 저장 폴더에서 기준 연도/월의 캡처와 추가증빙을 찾아 PPT를 만듭니다.</p>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>생성 예정 PPT 내용</h2>
+            </div>
+            <div class="proof-preview-grid" id="pptPreviewList"></div>
+          </section>
+        </section>
+
+        <section class="page" data-page-panel="storage">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>저장자료</h2>
+              <button class="secondary-button" id="refreshStorageButton" type="button">저장자료 미리보기</button>
+            </div>
+            <p class="folder-label">선택한 저장 폴더의 기준 월 자료를 이미지 기준으로 확인합니다.</p>
+            <div class="proof-preview-grid" id="storagePreviewList"></div>
+          </section>
+          <section class="panel storage-tools">
+            <div class="panel-heading">
+              <h2>저장자료 정리</h2>
+              <div class="actions">
+                <button class="secondary-button" id="scanDuplicatesButton" type="button">중복 파일 찾기</button>
+                <button class="secondary-button" id="deleteDuplicatesButton" type="button" disabled>중복 후보 삭제</button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label>
+                삭제할 폴더
+                <select id="deleteFolderSelect">
+                  <option value="거리캡처">거리캡처</option>
+                  <option value="유가캡처">유가캡처</option>
+                  <option value="추가증빙">추가증빙</option>
+                  <option value="추가증빙자료">추가증빙자료</option>
+                  <option value="조활비">조활비</option>
+                  <option value="소모품비">소모품비</option>
+                  <option value="확인필요">확인필요</option>
+                  <option value="PPT">PPT</option>
+                </select>
+              </label>
+              <label>
+                폴더 비우기
+                <button class="secondary-button danger-button" id="clearFolderButton" type="button">선택 폴더 전체 삭제</button>
+              </label>
+            </div>
+            <ul class="cleanup-list" id="storageCleanupStatus"></ul>
+          </section>
+        </section>
+
+        <input id="settingsStartInput" type="hidden" />
+        <input id="settingsDestinationInput" type="hidden" />
+        <input id="settingsPeopleInput" type="hidden" value="3" />
+        <button id="saveSettingsButton" type="button" hidden></button>
+        <span id="settingsStatus" hidden></span>
+        <div class="image-modal" id="imageModal" hidden>
+          <button class="image-modal-close" id="imageModalClose" type="button">닫기</button>
+          <img id="imageModalImg" alt="증빙 이미지 확대보기" />
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="./src/travel-proof-app.js"></script>
+  </body>
+</html>

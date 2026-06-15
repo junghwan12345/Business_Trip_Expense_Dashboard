@@ -1,0 +1,3 @@
+﻿dump: C:\Users\배정환\Desktop\코덱스\9428a285-452b-4858-90c5-433eafc894b7.dmp  size: 36221840
+bytes read: 36221840
+matches: 0
