@@ -7,7 +7,7 @@ import {
   getKoreanHoliday,
   listEventsForDate,
   upsertEvent
-} from "../src/대시보드/calendar.js";
+} from "../src/dashboard/calendar.js";
 import {
   buildIssueLinks,
   defaultIndices,
@@ -15,8 +15,8 @@ import {
   normalizeYahooQuote,
   quoteSymbolsForState,
   shouldAutoRefreshQuotes
-} from "../src/대시보드/market-data.js";
-import { createDefaultState } from "../src/대시보드/dashboard-data.js";
+} from "../src/dashboard/market-data.js";
+import { createDefaultState } from "../src/dashboard/dashboard-data.js";
 
 test("buildCalendarMonth marks Korean holidays and Sundays as red days", () => {
   const month = buildCalendarMonth(2026, 2, []);

@@ -12,7 +12,7 @@ import {
   resetDashboardLayout,
   setWidgetSpan,
   showWidget
-} from "../src/대시보드/dashboard-layout.js";
+} from "../src/dashboard/dashboard-layout.js";
 
 test("normalizeDashboardLayout migrates preset sizes to grid spans", () => {
   const layout = normalizeDashboardLayout([

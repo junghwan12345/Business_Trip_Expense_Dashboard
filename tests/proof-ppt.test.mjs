@@ -12,7 +12,7 @@ import {
   selectedMonthKey,
   selectedProofMonthDirectoryMode,
   titleForProofDate
-} from "../src/출장비/proof-ppt.js";
+} from "../src/travel-proof/proof-ppt.js";
 
 test("proof folders separate route, oil, extra, and ppt assets", () => {
   assert.deepEqual(PROOF_FOLDERS, {

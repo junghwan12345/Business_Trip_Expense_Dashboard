@@ -6,7 +6,7 @@ import {
   DEFAULT_PROOF_FOLDER_NAME,
   googleDriveBaseCandidates,
   resolveDefaultOutputRoot
-} from "../src/공통/storage-root.js";
+} from "../src/shared/storage-root.js";
 
 test("resolveDefaultOutputRoot prefers a detected Google Drive sync folder", () => {
   const homeDirectory = "C:\\Users\\tester";

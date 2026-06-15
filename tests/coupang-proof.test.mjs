@@ -8,7 +8,7 @@ import {
   parseCoupangCaptureDates,
   parseCoupangReceiptText,
   sanitizeReceiptFilePart
-} from "../src/출장비/coupang-proof.js";
+} from "../src/travel-proof/coupang-proof.js";
 
 test("parseCoupangCaptureDates accepts comma and newline separated month/day inputs", () => {
   assert.deepEqual(parseCoupangCaptureDates("06/04, 6/5\n2026-06-06", { year: 2026, month: 6 }), [

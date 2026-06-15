@@ -2,9 +2,9 @@ import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
-import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/대시보드/market-data.js";
-import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/출장비/coupang-proof.js";
-import { buildProofPptxBuffer } from "./src/출장비/proof-ppt-generator.js";
+import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/dashboard/market-data.js";
+import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
+import { buildProofPptxBuffer } from "./src/travel-proof/proof-ppt-generator.js";
 import {
   EXTRA_PROOF_FOLDER_ALIASES,
   groupProofImagesByDate,
@@ -12,14 +12,14 @@ import {
   pptFileBaseName,
   proofSubfolder,
   proofTypeFromFileName
-} from "./src/출장비/proof-ppt.js";
-import { DEFAULT_JSON_BODY_LIMIT, jsonBodyLimitForPath } from "./src/공통/server-limits.js";
-import { resolveDefaultOutputRoot } from "./src/공통/storage-root.js";
+} from "./src/travel-proof/proof-ppt.js";
+import { DEFAULT_JSON_BODY_LIMIT, jsonBodyLimitForPath } from "./src/shared/server-limits.js";
+import { resolveDefaultOutputRoot } from "./src/shared/storage-root.js";
 import {
   buildMonthlyProofGroups,
   parseTravelProofTable
-} from "./src/출장비/travel-proof.js";
-import { captureCoupangReceipts, captureNaverRoute, captureOilPriceProof } from "./src/출장비/naver-map-automation.js";
+} from "./src/travel-proof/travel-proof.js";
+import { captureCoupangReceipts, captureNaverRoute, captureOilPriceProof } from "./src/travel-proof/naver-map-automation.js";
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
@@ -582,5 +582,6 @@ async function fetchYahooQuote(symbol) {
 }
 
 server.listen(port, () => {
+
   console.log(`Personal dashboard running at http://localhost:${port}`);
 });

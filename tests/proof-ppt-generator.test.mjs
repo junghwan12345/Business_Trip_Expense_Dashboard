@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { proofSlidePlacements } from "../src/출장비/proof-ppt-generator.js";
+import { proofSlidePlacements } from "../src/travel-proof/proof-ppt-generator.js";
 
 test("proofSlidePlacements keeps route, oil, and one extra proof in readable columns", () => {
   const placements = proofSlidePlacements({
