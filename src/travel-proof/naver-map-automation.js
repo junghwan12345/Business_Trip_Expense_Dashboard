@@ -151,18 +151,23 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
 
 async function captureCoupangDateReceipts(client, dateKey) {
   const candidates = coupangOrderDateCandidates(dateKey);
-  const orderCount = await countCoupangOrdersForDateWithScroll(client, candidates);
+  const orderIds = await findCoupangOrderIdsForDateWithPages(client, dateKey);
+  const orderCount = orderIds.length || await countCoupangOrdersForDateWithScroll(client, candidates);
   if (!orderCount) {
     throw new Error("해당 날짜 주문을 찾지 못했습니다.");
   }
 
   const captures = [];
   for (let index = 0; index < orderCount; index += 1) {
-    const opened = await clickCoupangOrderDetailForDate(client, candidates, index);
+    const opened = orderIds[index]
+      ? await openCoupangOrderDetailById(client, orderIds[index])
+      : await clickCoupangOrderDetailForDate(client, candidates, index);
     if (!opened) {
       throw new Error("주문 상세보기 버튼을 찾지 못했습니다.");
     }
 
+    const targetsBeforeReceipt = await listChromeTargets();
+    const targetIdsBeforeReceipt = new Set(targetsBeforeReceipt.map((target) => target.id));
     const receiptButton = await waitUntil(async () => clickCoupangReceiptButton(client), 15000);
     if (!receiptButton) {
       throw new Error("거래명세서 버튼을 찾지 못했습니다.");
@@ -174,6 +179,7 @@ async function captureCoupangDateReceipts(client, dateKey) {
       target.type === "page" &&
       target.webSocketDebuggerUrl &&
       target.id !== client.targetId &&
+      !targetIdsBeforeReceipt.has(target.id) &&
       /coupang|receipt|order|about:blank/i.test(`${target.url} ${target.title}`)
     );
     const receiptClient = popupTarget
@@ -183,7 +189,12 @@ async function captureCoupangDateReceipts(client, dateKey) {
     try {
       await receiptClient.call("Page.enable");
       await receiptClient.call("Runtime.enable");
-      await waitFor(receiptClient, "document.body.innerText.includes('거래명세표')", 15000);
+      await waitFor(
+        receiptClient,
+        "['거래명세서','거래명세표'].some((label) => (document.body.innerText || '').replace(/\\s+/g, '').includes(label))",
+        20000,
+        "쿠팡 거래명세서"
+      );
       await delay(800);
       const textResult = await evaluate(receiptClient, "document.body.innerText", true);
       const receipt = parseCoupangReceiptText(textResult.result.result.value);
@@ -495,6 +506,71 @@ async function countCoupangOrdersForDateOnCurrentPage(client, candidates) {
   return 0;
 }
 
+async function findCoupangOrderIdsForDateWithPages(client, dateKey) {
+  for (let page = 1; page <= COUPANG_ORDER_SEARCH_PAGES; page += 1) {
+    const orderIds = await findCoupangOrderIdsForDateOnCurrentPage(client, dateKey);
+    if (orderIds.length) {
+      return orderIds;
+    }
+
+    const moved = await clickCoupangNextOrderPage(client);
+    if (!moved) {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+async function findCoupangOrderIdsForDateOnCurrentPage(client, dateKey) {
+  const result = await evaluate(client, `
+    (() => {
+      const targetDateKey = ${JSON.stringify(dateKey)};
+      const nextDataText = document.getElementById('__NEXT_DATA__')?.textContent || '';
+      if (!nextDataText) return [];
+
+      const formatDateKey = (value) => {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        const parts = new Intl.DateTimeFormat('en', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(date);
+        const part = (type) => parts.find((item) => item.type === type)?.value || '';
+        return [part('year'), part('month'), part('day')].filter(Boolean).join('-');
+      };
+
+      try {
+        const nextData = JSON.parse(nextDataText);
+        const orderList = nextData?.props?.pageProps?.domains?.desktopOrder?.orderList || [];
+        const ids = orderList
+          .filter((order) => formatDateKey(order.orderedAt) === targetDateKey)
+          .map((order) => String(order.orderId || '').trim())
+          .filter(Boolean);
+        return [...new Set(ids)];
+      } catch {
+        return [];
+      }
+    })()
+  `, true).catch(() => null);
+
+  const ids = result?.result?.result?.value;
+  return Array.isArray(ids) ? ids : [];
+}
+
+async function openCoupangOrderDetailById(client, orderId) {
+  await navigate(client, `https://mc.coupang.com/ssr/desktop/order/${encodeURIComponent(orderId)}`);
+  await waitFor(
+    client,
+    "(document.body.innerText || '').includes('주문상세') || (document.body.innerText || '').includes('결제영수증 정보')",
+    20000,
+    "쿠팡 주문상세"
+  );
+  return true;
+}
+
 async function clickCoupangNextOrderPage(client) {
   await evaluate(client, "window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })", true).catch(() => {});
   await delay(700);
@@ -624,7 +700,9 @@ async function clickCoupangOrderDetailForDateOnCurrentPage(client, candidates, o
   for (let attempt = 0; attempt <= COUPANG_ORDER_SEARCH_SCROLLS; attempt += 1) {
     const hit = await findCoupangOrderDetailForDate(client, candidates, orderIndex);
     if (hit) {
-      await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
+      if (!hit.clicked) {
+        await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
+      }
       return true;
     }
 
@@ -677,11 +755,13 @@ async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
           Math.abs(other.link.rect.y - item.link.rect.y) < 2
         ) === index
       );
-      const headerHit = uniqueHeaderHits[orderIndex] || uniqueHeaderHits[0];
+      const headerHit = uniqueHeaderHits[orderIndex];
       if (headerHit) {
         headerHit.link.element.scrollIntoView({ block: 'center', inline: 'center' });
+        const clickable = headerHit.link.element.closest('a,button,[role=button]') || headerHit.link.element;
+        clickable.click();
         const rect = headerHit.link.element.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        return { clicked: true, x: rect.x, y: rect.y, w: rect.width, h: rect.height };
       }
 
       const blocks = visibleItems
@@ -692,7 +772,7 @@ async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
           item.text.includes('주문 상세보기')
         )
         .sort((left, right) => (left.rect.y - right.rect.y) || (left.rect.x - right.rect.x));
-      const block = blocks[orderIndex] || blocks[0];
+      const block = blocks[orderIndex];
       if (!block) return null;
       const buttons = [...block.element.querySelectorAll('a,button,[role=button]')]
         .map((element) => {
@@ -704,8 +784,10 @@ async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
       const hit = buttons[0];
       if (!hit) return null;
       hit.element.scrollIntoView({ block: 'center', inline: 'center' });
+      const clickable = hit.element.closest('a,button,[role=button]') || hit.element;
+      clickable.click();
       const rect = hit.element.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+      return { clicked: true, x: rect.x, y: rect.y, w: rect.width, h: rect.height };
     })()
   `, true);
   return result.result.result.value || null;
@@ -740,7 +822,9 @@ async function getCoupangReceiptClip(client) {
     (() => {
       const bodyRect = document.body.getBoundingClientRect();
       const title = [...document.querySelectorAll('body *')]
-        .find((element) => (element.innerText || '').trim().includes('거래명세표'));
+        .find((element) => ['거래명세서', '거래명세표'].some((label) =>
+          (element.innerText || '').replace(/\\s+/g, '').includes(label)
+        ));
       const table = document.querySelector('table') || title?.closest('body');
       const rect = (table || document.body).getBoundingClientRect();
       const right = Math.min(window.innerWidth, Math.max(rect.right, bodyRect.right));
@@ -970,13 +1054,13 @@ async function click(client, x, y) {
   });
 }
 
-async function waitFor(client, expression, timeoutMs) {
+async function waitFor(client, expression, timeoutMs, label = "화면") {
   const ok = await waitUntil(async () => {
     const result = await evaluate(client, `Boolean(${expression})`, true).catch(() => null);
     return Boolean(result?.result?.result?.value);
   }, timeoutMs);
   if (!ok) {
-    throw new Error("Timed out waiting for Naver Map.");
+    throw new Error(`${label} 대기 시간이 초과되었습니다.`);
   }
 }
 

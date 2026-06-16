@@ -43,10 +43,23 @@ export async function buildProofPptxBuffer({ monthKey, images }) {
   };
 
   for (const group of grouped) {
-    addProofSlide(pptx, group);
+    if ([...(group.route || []), ...(group.oil || []), ...(group.extra || [])].length) {
+      addProofSlide(pptx, group);
+    }
+    for (const section of expenseProofSections(group)) {
+      addExpenseProofSlide(pptx, group, section);
+    }
   }
 
   return pptx.write({ outputType: "nodebuffer" });
+}
+
+function expenseProofSections(group) {
+  return [
+    { key: "welfare", label: "조활비 증빙", images: group.welfare || [] },
+    { key: "supply", label: "소모품비 증빙", images: group.supply || [] },
+    { key: "review", label: "확인필요 증빙", images: group.review || [] }
+  ].filter((section) => section.images.length);
 }
 
 function addProofSlide(pptx, group) {
@@ -75,6 +88,48 @@ function addProofSlide(pptx, group) {
 
   const placements = proofSlidePlacements(group);
   placements.forEach(({ image, box }) => {
+    if ((!image.dataUri && !image.path) || !box) {
+      return;
+    }
+    slide.addImage({
+      path: image.path && !image.dataUri ? image.path : undefined,
+      data: image.dataUri,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      sizing: { type: "contain", x: box.x, y: box.y, w: box.w, h: box.h }
+    });
+  });
+}
+
+function addExpenseProofSlide(pptx, group, section) {
+  const slide = pptx.addSlide();
+  slide.background = { color: "FFFFFF" };
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0.8,
+    y: 0.38,
+    w: 11.75,
+    h: 0.42,
+    line: { color: "E2F0D9", transparency: 100 },
+    fill: { color: "E2F0D9" }
+  });
+  slide.addText(`${titleForProofDate(group.dateKey)} ${section.label}`, {
+    x: 0.8,
+    y: 0.41,
+    w: 11.75,
+    h: 0.36,
+    align: "center",
+    fontFace: "Malgun Gothic",
+    fontSize: 20,
+    bold: false,
+    color: "000000",
+    margin: 0
+  });
+
+  const content = { x: 0.8, y: 1.12, w: 11.75, h: 5.85 };
+  section.images.forEach((image, index) => {
+    const box = gridBox(index, section.images.length, content);
     if ((!image.dataUri && !image.path) || !box) {
       return;
     }

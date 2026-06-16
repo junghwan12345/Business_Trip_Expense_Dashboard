@@ -35,6 +35,17 @@ const STORAGE_CLEANUP_FOLDERS = [
   COUPANG_PROOF_FOLDERS.review,
   "PPT"
 ];
+const STORAGE_SETTING_LABELS = {
+  route: "거리캡처",
+  oil: "유가캡처",
+  extra: "추가증빙",
+  coupang: "쿠팡 거래명세서",
+  welfare: "조활비",
+  supply: "소모품비",
+  review: "확인필요",
+  ppt: "PPT",
+  ledger: "장부 JSON"
+};
 let autoPreviewTimer = null;
 let autoProofPreviewTimer = null;
 
@@ -44,6 +55,9 @@ const state = {
   failedJobs: [],
   fuelRows: [],
   coupangEntries: [],
+  ledgerEntries: [],
+  storageSettings: {},
+  effectiveStorageRoots: {},
   duplicateCandidates: [],
   directoryHandle: null,
   running: false,
@@ -98,6 +112,16 @@ const elements = {
   supplyRemainingCard: document.querySelector("#supplyRemainingCard"),
   coupangResultList: document.querySelector("#coupangResultList"),
   coupangErrorList: document.querySelector("#coupangErrorList"),
+  refreshLedgerButton: document.querySelector("#refreshLedgerButton"),
+  ledgerMonthInput: document.querySelector("#ledgerMonthInput"),
+  manualExpenseDateInput: document.querySelector("#manualExpenseDateInput"),
+  manualExpenseTypeSelect: document.querySelector("#manualExpenseTypeSelect"),
+  manualExpenseAmountInput: document.querySelector("#manualExpenseAmountInput"),
+  manualExpenseMemoInput: document.querySelector("#manualExpenseMemoInput"),
+  manualExpensePathInput: document.querySelector("#manualExpensePathInput"),
+  addManualExpenseButton: document.querySelector("#addManualExpenseButton"),
+  ledgerSummaryGrid: document.querySelector("#ledgerSummaryGrid"),
+  ledgerEntryList: document.querySelector("#ledgerEntryList"),
   pptPreviewList: document.querySelector("#pptPreviewList"),
   storagePreviewList: document.querySelector("#storagePreviewList"),
   settingsStartInput: document.querySelector("#settingsStartInput"),
@@ -114,6 +138,9 @@ const elements = {
   deleteDuplicatesButton: document.querySelector("#deleteDuplicatesButton"),
   clearFolderButton: document.querySelector("#clearFolderButton"),
   storageCleanupStatus: document.querySelector("#storageCleanupStatus"),
+  storageSettingsGrid: document.querySelector("#storageSettingsGrid"),
+  saveStorageSettingsButton: document.querySelector("#saveStorageSettingsButton"),
+  storageSettingsStatus: document.querySelector("#storageSettingsStatus"),
   navItems: document.querySelectorAll("[data-page-target]"),
   pagePanels: document.querySelectorAll("[data-page-panel]"),
   browserStatus: document.querySelector("#browserStatus")
@@ -124,6 +151,8 @@ elements.monthInput.value = String(now.getMonth() + 1);
 elements.startInput.value = "태왕디아너스오페라";
 elements.destinationInput.value = "태왕디아너스오페라";
 elements.manualDateSelect.value = todayInputValue(now);
+elements.ledgerMonthInput.value = todayInputValue(now).slice(0, 7);
+elements.manualExpenseDateInput.value = todayInputValue(now);
 elements.settingsStartInput.value = elements.startInput.value;
 elements.settingsDestinationInput.value = elements.destinationInput.value;
 elements.settingsPeopleInput.value = elements.coupangPeopleInput.value;
@@ -137,6 +166,9 @@ elements.createPptButton.addEventListener("click", createProofPpt);
 elements.previewPptButton.addEventListener("click", previewProofPpt);
 elements.refreshStorageButton.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
+elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
+elements.addManualExpenseButton?.addEventListener("click", addManualExpenseEntry);
+elements.saveStorageSettingsButton?.addEventListener("click", saveStorageSettings);
 elements.addManualWaypointButton.addEventListener("click", addManualWaypointGroup);
 elements.loadSampleButton.addEventListener("click", loadSample);
 elements.tableInput.addEventListener("input", scheduleAutoPreview);
@@ -150,7 +182,11 @@ elements.todayMonthButton.addEventListener("click", goToCurrentMonth);
 elements.scanDuplicatesButton.addEventListener("click", scanDuplicateFiles);
 elements.deleteDuplicatesButton.addEventListener("click", deleteDuplicateFiles);
 elements.clearFolderButton.addEventListener("click", clearSelectedProofFolder);
-elements.coupangPeopleInput.addEventListener("input", renderCoupangLimitSummary);
+elements.coupangPeopleInput.addEventListener("input", () => {
+  renderCoupangLimitSummary();
+  renderLedger();
+});
+elements.ledgerMonthInput?.addEventListener("input", renderLedger);
 elements.saveSettingsButton?.addEventListener("click", applySettings);
 elements.imageModalClose?.addEventListener("click", closeImageModal);
 elements.imageModal?.addEventListener("click", (event) => {
@@ -158,14 +194,20 @@ elements.imageModal?.addEventListener("click", (event) => {
     closeImageModal();
   }
 });
+elements.pptPreviewList.addEventListener("click", handleProofPreviewActionClick);
 elements.pptPreviewList.addEventListener("click", handlePreviewImageClick);
 elements.storagePreviewList.addEventListener("click", handlePreviewImageClick);
+elements.ledgerEntryList?.addEventListener("click", handleLedgerActionClick);
+elements.coupangResultList?.addEventListener("click", handleLedgerActionClick);
 for (const navItem of elements.navItems) {
   navItem.addEventListener("click", () => activatePage(navItem.dataset.pageTarget));
 }
 renderCoupangLimitSummary();
+renderStorageSettings();
+renderLedger();
 renderPreview();
 loadStorageInfo();
+loadExpenseLedger();
 
 if (!("showDirectoryPicker" in window)) {
   elements.browserStatus.textContent = "서버 저장";
@@ -184,6 +226,9 @@ async function loadStorageInfo() {
       throw new Error(data.message || "저장소 정보를 읽을 수 없습니다.");
     }
     const storage = data.storage;
+    state.storageSettings = data.storageSettings || {};
+    state.effectiveStorageRoots = data.effectiveStorageRoots || {};
+    renderStorageSettings();
     if (storage.storageType === "googleDrive") {
       elements.folderLabel.textContent = `기본 저장소: Google Drive 동기화 폴더 (${storage.outputRoot})`;
       elements.browserStatus.textContent = "Drive 저장";
@@ -196,6 +241,60 @@ async function loadStorageInfo() {
     }
   } catch (error) {
     elements.folderLabel.textContent = `기본 저장소 확인 실패: ${error.message}`;
+  }
+}
+
+function renderStorageSettings() {
+  if (!elements.storageSettingsGrid) {
+    return;
+  }
+  elements.storageSettingsGrid.innerHTML = "";
+  for (const [key, label] of Object.entries(STORAGE_SETTING_LABELS)) {
+    const row = document.createElement("label");
+    row.className = "storage-setting-row";
+    row.innerHTML = `
+      <span>${label}</span>
+      <input data-storage-key="${key}" type="text" value="${escapeAttribute(state.storageSettings[key] || "")}" placeholder="${escapeAttribute(state.effectiveStorageRoots[key] || "기본 저장소")}" />
+    `;
+    elements.storageSettingsGrid.append(row);
+  }
+}
+
+async function saveStorageSettings() {
+  const storageSettings = {};
+  for (const input of elements.storageSettingsGrid.querySelectorAll("[data-storage-key]")) {
+    const value = input.value.trim();
+    if (value) {
+      storageSettings[input.dataset.storageKey] = value;
+    }
+  }
+  elements.storageSettingsStatus.innerHTML = "";
+  try {
+    const response = await fetch("/api/travel-proof/storage-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storageSettings })
+    });
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(data.message);
+    }
+    state.storageSettings = data.storageSettings || {};
+    state.effectiveStorageRoots = data.effectiveStorageRoots || {};
+    renderStorageSettings();
+    renderStorageSettingsStatus(["저장소 설정을 저장했습니다."], "success");
+  } catch (error) {
+    renderStorageSettingsStatus([`저장소 설정 실패: ${error.message}`], "error");
+  }
+}
+
+function renderStorageSettingsStatus(messages, type = "") {
+  elements.storageSettingsStatus.innerHTML = "";
+  for (const message of messages) {
+    const item = document.createElement("li");
+    item.className = type;
+    item.textContent = message;
+    elements.storageSettingsStatus.append(item);
   }
 }
 
@@ -499,21 +598,15 @@ async function runCoupangCapture() {
     return;
   }
 
-  const monthKey = resolveSelectedMonthKey();
   const dateKeys = parseCoupangCaptureDates(elements.coupangDatesInput.value, {
-    year: elements.yearInput.value,
-    month: elements.monthInput.value
-  }).filter((dateKey) => dateKey.startsWith(`${monthKey}-`));
+    year: now.getFullYear()
+  });
 
   elements.coupangResultList.innerHTML = "";
   elements.coupangErrorList.innerHTML = "";
 
-  if (!monthKey) {
-    addCoupangError("기준 연도와 월을 확인해 주세요.");
-    return;
-  }
   if (!dateKeys.length) {
-    addCoupangError("캡처할 날짜를 입력해 주세요. 예: 06/04, 06/10");
+    addCoupangError("캡처할 날짜를 입력해 주세요. 예: 05/21, 2026-06-10");
     return;
   }
 
@@ -531,7 +624,9 @@ async function runCoupangCapture() {
       throw new Error(data.message);
     }
 
+    const savedEntries = [];
     for (const receipt of data.result.results || []) {
+      const monthKey = (receipt.dateKey || receipt.requestedDateKey || "").slice(0, 7);
       const savedPath = shouldUseServerSave ? receipt.savedPath : await saveCoupangReceipt(monthKey, receipt);
       const entry = {
         ...receipt,
@@ -539,12 +634,21 @@ async function runCoupangCapture() {
       };
       state.coupangEntries.push(entry);
       addCoupangResult(entry);
+      savedEntries.push(entry);
+    }
+
+    const ledgerEntries = savedEntries.map(receiptToLedgerEntry);
+    if (ledgerEntries.length) {
+      await upsertLedgerEntries(ledgerEntries);
+    } else if (data.result.ledger?.entries) {
+      state.ledgerEntries = data.result.ledger.entries;
     }
 
     for (const failure of data.result.failures || []) {
       addCoupangError(`${failure.dateKey}: ${failure.message}`);
     }
 
+    await loadExpenseLedger();
     renderCoupangLimitSummary();
   } catch (error) {
     addCoupangError(`쿠팡 캡처 실패: ${error.message}`);
@@ -905,7 +1009,8 @@ async function createProofPpt() {
 
 async function previewProofPpt() {
   await renderProofImagePreview(elements.pptPreviewList, {
-    emptyMessage: "PPT로 묶을 증빙 이미지를 찾지 못했습니다."
+    emptyMessage: "PPT로 묶을 증빙 이미지를 찾지 못했습니다.",
+    allowDelete: true
   });
 }
 
@@ -1078,7 +1183,7 @@ function renderStorageCleanupStatus(messages, type = "") {
   }
 }
 
-async function renderProofImagePreview(targetElement, { emptyMessage }) {
+async function renderProofImagePreview(targetElement, { emptyMessage, allowDelete = false }) {
   targetElement.innerHTML = "";
   const monthKey = resolveSelectedMonthKey();
   if (!monthKey) {
@@ -1086,7 +1191,7 @@ async function renderProofImagePreview(targetElement, { emptyMessage }) {
     return;
   }
   if (!state.directoryHandle) {
-    await renderServerProofImagePreview(targetElement, monthKey, emptyMessage);
+    await renderServerProofImagePreview(targetElement, monthKey, emptyMessage, { allowDelete });
     return;
   }
 
@@ -1099,14 +1204,14 @@ async function renderProofImagePreview(targetElement, { emptyMessage }) {
       return;
     }
     for (const group of groups) {
-      targetElement.append(renderProofPreviewCard(group));
+      targetElement.append(renderProofPreviewCard(group, { allowDelete }));
     }
   } catch (error) {
     targetElement.innerHTML = `<p class="folder-label error">미리보기 실패: ${escapeHtml(error.message)}</p>`;
   }
 }
 
-async function renderServerProofImagePreview(targetElement, monthKey, emptyMessage) {
+async function renderServerProofImagePreview(targetElement, monthKey, emptyMessage, { allowDelete = false } = {}) {
   try {
     const response = await fetch("/api/travel-proof/ppt-preview", {
       method: "POST",
@@ -1123,7 +1228,7 @@ async function renderServerProofImagePreview(targetElement, monthKey, emptyMessa
       targetElement.innerHTML = `<p class="folder-label">${emptyMessage}</p>`;
     } else {
       for (const group of groups) {
-        targetElement.append(renderProofPreviewCard(group));
+        targetElement.append(renderProofPreviewCard(group, { allowDelete }));
       }
     }
 
@@ -1151,13 +1256,16 @@ function renderUnmatchedProofCard(images) {
   return card;
 }
 
-function renderProofPreviewCard(group) {
+function renderProofPreviewCard(group, { allowDelete = false } = {}) {
   const card = document.createElement("article");
   card.className = "proof-preview-card";
   const allImages = [
-    ...group.route.map((image) => ({ ...image, label: "거리" })),
-    ...group.oil.map((image) => ({ ...image, label: "유가" })),
-    ...group.extra.map((image) => ({ ...image, label: "증빙" }))
+    ...(group.route || []).map((image) => ({ ...image, label: "거리" })),
+    ...(group.oil || []).map((image) => ({ ...image, label: "유가" })),
+    ...(group.extra || []).map((image) => ({ ...image, label: "추가증빙" })),
+    ...(group.welfare || []).map((image) => ({ ...image, label: "조활비" })),
+    ...(group.supply || []).map((image) => ({ ...image, label: "소모품비" })),
+    ...(group.review || []).map((image) => ({ ...image, label: "확인필요" }))
   ];
   card.innerHTML = `
     <div class="proof-preview-title">
@@ -1169,11 +1277,37 @@ function renderProofPreviewCard(group) {
         <figure>
           <img src="${image.dataUri}" alt="${escapeHtml(image.name)}" data-preview-image="${image.dataUri}" data-preview-caption="${escapeHtml(`${image.label} · ${image.name}`)}" />
           <figcaption>${escapeHtml(image.label)} · ${escapeHtml(image.name.split("/").at(-1) || image.name)}</figcaption>
+          ${allowDelete ? `<button class="ghost-button compact danger proof-delete-button" type="button" data-proof-delete="${escapeAttribute(image.name)}">삭제</button>` : ""}
         </figure>
       `).join("")}
     </div>
   `;
   return card;
+}
+
+async function handleProofPreviewActionClick(event) {
+  const button = event.target.closest("[data-proof-delete]");
+  if (!button) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const imageName = button.dataset.proofDelete;
+  const confirmed = window.confirm(`${imageName} 파일을 삭제할까요?`);
+  if (!confirmed) {
+    return;
+  }
+  try {
+    if (state.directoryHandle) {
+      await deleteBrowserProofImage(imageName);
+    } else {
+      await deleteServerProofImage(imageName);
+    }
+    await previewProofPpt();
+    elements.pptStatus.textContent = `삭제 완료: ${imageName}`;
+  } catch (error) {
+    addError(`PPT 미리보기 파일 삭제 실패: ${error.message}`);
+  }
 }
 
 function handlePreviewImageClick(event) {
@@ -1240,9 +1374,9 @@ async function collectBrowserProofImages(monthDirectory, monthKey) {
     ["route", "거리캡처"],
     ["oil", "유가캡처"],
     ...EXTRA_PROOF_FOLDER_ALIASES.map((folderName) => ["extra", folderName]),
-    ["extra", COUPANG_PROOF_FOLDERS.welfare],
-    ["extra", COUPANG_PROOF_FOLDERS.supply],
-    ["extra", COUPANG_PROOF_FOLDERS.review]
+    ["welfare", COUPANG_PROOF_FOLDERS.welfare],
+    ["supply", COUPANG_PROOF_FOLDERS.supply],
+    ["review", COUPANG_PROOF_FOLDERS.review]
   ];
   const images = [];
   const seenFolders = new Set();
@@ -1394,6 +1528,224 @@ function renderFuelOutput() {
   elements.copyFuelOutputButton.disabled = !elements.fuelOutput.value || state.running;
 }
 
+function renderLedger() {
+  if (!elements.ledgerSummaryGrid || !elements.ledgerEntryList) {
+    return;
+  }
+  const monthKey = elements.ledgerMonthInput.value || resolveSelectedMonthKey() || todayInputValue(now).slice(0, 7);
+  const quarter = quarterRangeForMonth(monthKey);
+  const confirmed = state.ledgerEntries.filter((entry) => entry.status === "confirmed");
+  const monthEntries = state.ledgerEntries.filter((entry) => entry.dateKey?.startsWith(`${monthKey}-`));
+  const quarterEntries = state.ledgerEntries.filter((entry) => entry.dateKey >= quarter.start && entry.dateKey <= quarter.end);
+  const supplyUsed = sumLedger(confirmed.filter((entry) => entry.type === "supply" && entry.dateKey?.startsWith(`${monthKey}-`)));
+  const welfareUsed = sumLedger(confirmed.filter((entry) => entry.type === "welfare" && entry.dateKey >= quarter.start && entry.dateKey <= quarter.end));
+  const supplyLimit = Number(elements.settingsSupplyLimitInput.value) || 50000;
+  const welfareLimit = (Number(elements.coupangPeopleInput.value) || 3) * 50000 * quarter.monthCount;
+  const reviewCount = state.ledgerEntries.filter((entry) => entry.status === "review").length;
+
+  elements.ledgerSummaryGrid.innerHTML = "";
+  for (const card of [
+    ["조회 월 소모품비", `${formatWon(supplyUsed)} / ${formatWon(supplyLimit)}원`, `${monthKey} 기준`],
+    ["조회 분기 조활비", `${formatWon(welfareUsed)} / ${formatWon(welfareLimit)}원`, `${quarter.label} 기준`],
+    ["소모품비 잔액", `${formatWon(supplyLimit - supplyUsed)}원`, "월별 초기화"],
+    ["조활비 잔액", `${formatWon(welfareLimit - welfareUsed)}원`, `${quarter.monthCount}개월 합산`],
+    ["확인필요", `${reviewCount}건`, "확정 전까지 미차감"]
+  ]) {
+    const item = document.createElement("article");
+    item.className = "ledger-summary-card";
+    item.innerHTML = `<span>${card[0]}</span><strong>${card[1]}</strong><span>${card[2]}</span>`;
+    elements.ledgerSummaryGrid.append(item);
+  }
+
+  const visibleEntries = [...new Map([...monthEntries, ...quarterEntries].map((entry) => [entry.id, entry])).values()]
+    .sort((left, right) => String(right.dateKey).localeCompare(String(left.dateKey)));
+  elements.ledgerEntryList.innerHTML = "";
+  if (!visibleEntries.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "조회 기간에 등록된 이력이 없습니다.";
+    elements.ledgerEntryList.append(empty);
+    return;
+  }
+  for (const entry of visibleEntries) {
+    const item = document.createElement("li");
+    item.className = entry.status;
+    const itemText = (entry.items || []).join(", ") || entry.memo || "품목 없음";
+    item.innerHTML = `
+      <strong>${entry.dateKey} · ${categoryLabel(entry.type)} · ${formatWon(entry.amountWon)}원 · ${entry.source === "manual" ? "수기" : "쿠팡"}</strong>
+      <span>${escapeHtml(itemText)}${entry.savedPath ? ` · ${escapeHtml(entry.savedPath)}` : ""}</span>
+      ${entry.status === "review" ? `
+        <button class="ghost-button compact" type="button" data-ledger-action="confirm-welfare" data-ledger-id="${escapeAttribute(entry.id)}">조활비 확정</button>
+        <button class="ghost-button compact" type="button" data-ledger-action="confirm-supply" data-ledger-id="${escapeAttribute(entry.id)}">소모품비 확정</button>
+      ` : ""}
+      <button class="ghost-button compact" type="button" data-ledger-action="delete" data-ledger-id="${escapeAttribute(entry.id)}">삭제</button>
+    `;
+    elements.ledgerEntryList.append(item);
+  }
+}
+
+async function handleLedgerActionClick(event) {
+  const button = event.target.closest("[data-ledger-action]");
+  if (!button) {
+    return;
+  }
+  const id = button.dataset.ledgerId;
+  const resultItem = button.closest("[data-ledger-result-id]");
+  try {
+    if (button.dataset.ledgerAction === "confirm-welfare") {
+      await confirmLedgerEntry(id, "welfare");
+      markCoupangResultConfirmed(resultItem, "조활비");
+    } else if (button.dataset.ledgerAction === "confirm-supply") {
+      await confirmLedgerEntry(id, "supply");
+      markCoupangResultConfirmed(resultItem, "소모품비");
+    } else if (button.dataset.ledgerAction === "delete") {
+      await deleteLedgerEntry(id);
+      resultItem?.remove();
+    }
+  } catch (error) {
+    addCoupangError(`장부 처리 실패: ${error.message}`);
+  }
+}
+
+function markCoupangResultConfirmed(resultItem, label) {
+  if (!resultItem) {
+    return;
+  }
+  resultItem.classList.add("confirmed");
+  const actions = resultItem.querySelector(".inline-actions");
+  if (actions) {
+    actions.innerHTML = `<span class="folder-label">${label}로 확정되었습니다.</span>`;
+  }
+}
+
+function sumLedger(entries) {
+  return entries.reduce((sum, entry) => sum + (Number(entry.amountWon) || 0), 0);
+}
+
+function quarterRangeForMonth(monthKey) {
+  const [yearText, monthText] = String(monthKey || "").split("-");
+  const year = Number(yearText) || now.getFullYear();
+  const month = Number(monthText) || now.getMonth() + 1;
+  const startMonth = Math.floor((month - 1) / 3) * 3 + 1;
+  const endMonth = startMonth + 2;
+  return {
+    start: `${year}-${String(startMonth).padStart(2, "0")}-01`,
+    end: `${year}-${String(endMonth).padStart(2, "0")}-31`,
+    label: `${year}년 ${startMonth}~${endMonth}월`,
+    monthCount: endMonth - startMonth + 1
+  };
+}
+
+function categoryLabel(type) {
+  return type === "welfare" ? "조활비" : type === "supply" ? "소모품비" : "확인필요";
+}
+
+function receiptToLedgerEntry(receipt) {
+  const type = receipt.category === "welfare" || receipt.category === "supply" ? receipt.category : "review";
+  return {
+    id: `coupang:${receipt.requestedDateKey || receipt.dateKey}:${receipt.amountWon || 0}:${receipt.savedFileName || receipt.fileName || receipt.savedPath || ""}`,
+    dateKey: receipt.dateKey || receipt.requestedDateKey || "",
+    type,
+    source: "coupang",
+    amountWon: receipt.amountWon || 0,
+    items: receipt.items || [],
+    memo: receipt.reasons?.length ? `분류 근거: ${receipt.reasons.join(", ")}` : "",
+    status: type === "review" ? "review" : "confirmed",
+    savedPath: receipt.savedPath || ""
+  };
+}
+
+async function loadExpenseLedger() {
+  try {
+    const response = await fetch("/api/travel-proof/expense-ledger");
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(data.message);
+    }
+    state.ledgerEntries = data.ledger?.entries || [];
+    state.coupangEntries = state.ledgerEntries
+      .filter((entry) => entry.source === "coupang")
+      .map((entry) => ({
+        ...entry,
+        category: entry.type,
+        categoryLabel: categoryLabel(entry.type),
+        amountWon: entry.amountWon
+      }));
+    renderLedger();
+    renderCoupangLimitSummary();
+  } catch (error) {
+    addCoupangError(`장부 불러오기 실패: ${error.message}`);
+  }
+}
+
+async function upsertLedgerEntries(entries) {
+  const response = await fetch("/api/travel-proof/expense-ledger/upsert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries })
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+  state.ledgerEntries = data.ledger?.entries || [];
+  renderLedger();
+  renderCoupangLimitSummary();
+}
+
+async function addManualExpenseEntry() {
+  const dateKey = elements.manualExpenseDateInput.value;
+  const type = elements.manualExpenseTypeSelect.value;
+  const amountWon = Number(elements.manualExpenseAmountInput.value);
+  const memo = elements.manualExpenseMemoInput.value.trim();
+  const savedPath = elements.manualExpensePathInput.value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !amountWon) {
+    addCoupangError("수기 내역 날짜와 금액을 확인해 주세요.");
+    return;
+  }
+  const entry = {
+    id: `manual:${dateKey}:${Date.now()}`,
+    dateKey,
+    type,
+    source: "manual",
+    amountWon,
+    items: memo ? [memo] : [],
+    memo,
+    status: type === "review" ? "review" : "confirmed",
+    savedPath
+  };
+  try {
+    await upsertLedgerEntries([entry]);
+    elements.manualExpenseAmountInput.value = "";
+    elements.manualExpenseMemoInput.value = "";
+    elements.manualExpensePathInput.value = "";
+  } catch (error) {
+    addCoupangError(`수기 내역 저장 실패: ${error.message}`);
+  }
+}
+
+async function confirmLedgerEntry(id, type) {
+  const entry = state.ledgerEntries.find((candidate) => candidate.id === id);
+  if (!entry) {
+    return;
+  }
+  await upsertLedgerEntries([{ ...entry, type, status: "confirmed" }]);
+}
+
+async function deleteLedgerEntry(id) {
+  const response = await fetch("/api/travel-proof/expense-ledger/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+  state.ledgerEntries = data.ledger?.entries || [];
+  renderLedger();
+  renderCoupangLimitSummary();
+}
+
 async function copyFuelOutput() {
   if (!elements.fuelOutput.value) {
     return;
@@ -1403,25 +1755,44 @@ async function copyFuelOutput() {
 }
 
 function renderCoupangLimitSummary() {
-  const summary = expenseLimitSummary({
-    peopleCount: elements.coupangPeopleInput.value,
-    supplyLimitWon: elements.settingsSupplyLimitInput.value,
-    entries: state.coupangEntries
-  });
-  elements.welfareLimitCard.textContent = `${formatWon(summary.welfare.limitWon)}원`;
-  elements.welfareRemainingCard.textContent = `${formatWon(summary.welfare.remainingWon)}원`;
-  elements.supplyLimitCard.textContent = `${formatWon(summary.supply.limitWon)}원`;
-  elements.supplyRemainingCard.textContent = `${formatWon(summary.supply.remainingWon)}원`;
+  const monthKey = elements.ledgerMonthInput?.value || resolveSelectedMonthKey() || todayInputValue(now).slice(0, 7);
+  const quarter = quarterRangeForMonth(monthKey);
+  const confirmedEntries = state.ledgerEntries.filter((entry) => entry.status === "confirmed");
+  const welfareUsed = sumLedger(confirmedEntries.filter((entry) =>
+    entry.type === "welfare" && entry.dateKey >= quarter.start && entry.dateKey <= quarter.end
+  ));
+  const supplyUsed = sumLedger(confirmedEntries.filter((entry) =>
+    entry.type === "supply" && entry.dateKey?.startsWith(`${monthKey}-`)
+  ));
+  const welfareLimit = (Number(elements.coupangPeopleInput.value) || 3) * 50000 * quarter.monthCount;
+  const supplyLimit = Number(elements.settingsSupplyLimitInput.value) || 50000;
+  elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
+  elements.welfareRemainingCard.textContent = `${formatWon(welfareLimit - welfareUsed)}원`;
+  elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
+  elements.supplyRemainingCard.textContent = `${formatWon(supplyLimit - supplyUsed)}원`;
   if (elements.coupangLimitSummary) {
-    elements.coupangLimitSummary.innerHTML = "";
+    elements.coupangLimitSummary.innerHTML = `
+      <span>조활비: ${quarter.label} ${quarter.monthCount}개월 총 ${formatWon(welfareLimit)}원 중 ${formatWon(welfareLimit - welfareUsed)}원 남음</span>
+      <span>소모품비: ${monthKey} 총 ${formatWon(supplyLimit)}원 중 ${formatWon(supplyLimit - supplyUsed)}원 남음</span>
+    `;
   }
 }
 
 function addCoupangResult(entry) {
   const item = document.createElement("li");
   item.className = "success";
-  const itemSummary = (entry.items || []).slice(0, 2).join(", ") || "품목 확인필요";
-  item.textContent = `${entry.dateKey} / ${formatWon(entry.amountWon)}원 / ${entry.categoryLabel} / ${itemSummary} / ${entry.savedPath}`;
+  const itemSummary = (entry.items || []).slice(0, 3).join(", ") || "품목 확인필요";
+  const ledgerId = receiptToLedgerEntry(entry).id;
+  item.dataset.ledgerResultId = ledgerId;
+  item.innerHTML = `
+    <strong>${entry.dateKey} · ${formatWon(entry.amountWon)}원 · ${escapeHtml(entry.categoryLabel || categoryLabel(entry.category))}</strong>
+    <span>${escapeHtml(itemSummary)}${entry.savedPath ? ` · ${escapeHtml(entry.savedPath)}` : ""}</span>
+    <div class="inline-actions">
+      <button class="ghost-button compact" type="button" data-ledger-action="confirm-welfare" data-ledger-id="${escapeAttribute(ledgerId)}">조활비 확정</button>
+      <button class="ghost-button compact" type="button" data-ledger-action="confirm-supply" data-ledger-id="${escapeAttribute(ledgerId)}">소모품비 확정</button>
+      <button class="ghost-button compact danger" type="button" data-ledger-action="delete" data-ledger-id="${escapeAttribute(ledgerId)}">캡처파일 삭제</button>
+    </div>
+  `;
   elements.coupangResultList.append(item);
 }
 
@@ -1461,6 +1832,9 @@ function setBusy(isBusy, label = "") {
   elements.clearFolderButton.disabled = isBusy;
   elements.deleteDuplicatesButton.disabled = isBusy || !state.duplicateCandidates.length;
   elements.runCoupangButton.disabled = isBusy;
+  if (elements.refreshLedgerButton) elements.refreshLedgerButton.disabled = isBusy;
+  if (elements.addManualExpenseButton) elements.addManualExpenseButton.disabled = isBusy;
+  if (elements.saveStorageSettingsButton) elements.saveStorageSettingsButton.disabled = isBusy;
   elements.manualDateSelect.disabled = isBusy;
   elements.manualWaypoint1Input.disabled = isBusy;
   elements.manualWaypoint2Input.disabled = isBusy;
@@ -1496,4 +1870,8 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
 }

@@ -11,10 +11,17 @@ import {
 } from "../src/travel-proof/coupang-proof.js";
 
 test("parseCoupangCaptureDates accepts comma and newline separated month/day inputs", () => {
-  assert.deepEqual(parseCoupangCaptureDates("06/04, 6/5\n2026-06-06", { year: 2026, month: 6 }), [
+  assert.deepEqual(parseCoupangCaptureDates("06/04, 6/5\n2026-06-06", { year: 2026 }), [
     "2026-06-04",
     "2026-06-05",
     "2026-06-06"
+  ]);
+});
+
+test("parseCoupangCaptureDates does not require selected month to match input", () => {
+  assert.deepEqual(parseCoupangCaptureDates("5/21, 2026/7/2", { year: 2026 }), [
+    "2026-05-21",
+    "2026-07-02"
   ]);
 });
 

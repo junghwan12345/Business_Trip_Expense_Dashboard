@@ -145,10 +145,10 @@ export function groupProofImagesByDate(images, monthKey = "") {
       continue;
     }
     if (!groups.has(dateKey)) {
-      groups.set(dateKey, { dateKey, route: [], oil: [], extra: [] });
+      groups.set(dateKey, { dateKey, route: [], oil: [], extra: [], welfare: [], supply: [], review: [] });
     }
     const bucket = groups.get(dateKey);
-    const type = ["route", "oil", "extra"].includes(image.type) ? image.type : "extra";
+    const type = ["route", "oil", "extra", "welfare", "supply", "review"].includes(image.type) ? image.type : "extra";
     bucket[type].push({ ...image, dateKey, type });
   }
 

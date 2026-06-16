@@ -13,7 +13,7 @@
           <div class="brand-mark">T</div>
           <div>
             <strong>출장비 증빙</strong>
-            <span>26/06/16 5:56pm</span>
+            <span>26/06/16 10:49pm</span>
           </div>
         </div>
 
@@ -216,6 +216,51 @@
               </div>
             </div>
           </section>
+
+          <section class="panel ledger-panel">
+            <div class="panel-heading">
+              <h2>조활비·소모품비 현황</h2>
+              <button class="secondary-button compact" id="refreshLedgerButton" type="button">새로고침</button>
+            </div>
+            <div class="form-grid">
+              <label>
+                조회 월
+                <input id="ledgerMonthInput" type="month" />
+              </label>
+              <label>
+                수기 등록 날짜
+                <input id="manualExpenseDateInput" type="date" />
+              </label>
+              <label>
+                구분
+                <select id="manualExpenseTypeSelect">
+                  <option value="welfare">조활비</option>
+                  <option value="supply">소모품비</option>
+                  <option value="review">확인필요</option>
+                </select>
+              </label>
+              <label>
+                금액
+                <input id="manualExpenseAmountInput" type="number" min="0" step="1" placeholder="예: 12000" />
+              </label>
+              <label>
+                품목/메모
+                <input id="manualExpenseMemoInput" type="text" placeholder="예: 커피, 종이컵" />
+              </label>
+              <label>
+                증빙 경로/메모
+                <input id="manualExpensePathInput" type="text" placeholder="선택 입력" />
+              </label>
+            </div>
+            <div class="actions">
+              <button class="primary-button" id="addManualExpenseButton" type="button">수기 내역 추가</button>
+            </div>
+            <div class="ledger-summary-grid" id="ledgerSummaryGrid"></div>
+            <div class="ledger-history">
+              <h3>이력</h3>
+              <ul id="ledgerEntryList"></ul>
+            </div>
+          </section>
         </section>
 
         <section class="page" data-page-panel="ppt">
@@ -274,6 +319,15 @@
               </label>
             </div>
             <ul class="cleanup-list" id="storageCleanupStatus"></ul>
+          </section>
+          <section class="panel storage-settings-panel">
+            <div class="panel-heading">
+              <h2>메뉴별 저장소 설정</h2>
+              <button class="secondary-button" id="saveStorageSettingsButton" type="button">저장소 설정 저장</button>
+            </div>
+            <p class="folder-label">비워두면 기본 Google Drive 저장소를 사용합니다. 서버 저장 작업에 적용됩니다.</p>
+            <div class="storage-settings-grid" id="storageSettingsGrid"></div>
+            <ul class="cleanup-list" id="storageSettingsStatus"></ul>
           </section>
         </section>
 

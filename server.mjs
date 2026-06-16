@@ -1,7 +1,7 @@
 import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { extname, join, normalize, resolve } from "node:path";
+import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { basename, extname, join, normalize, resolve } from "node:path";
 import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/dashboard/market-data.js";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
 import { buildProofPptxBuffer } from "./src/travel-proof/proof-ppt-generator.js";
@@ -22,6 +22,19 @@ import {
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
+const STORAGE_SETTING_KEYS = [
+  "route",
+  "oil",
+  "extra",
+  "coupang",
+  "welfare",
+  "supply",
+  "review",
+  "ppt",
+  "ledger"
+];
+const STORAGE_SETTINGS_FILE = join("settings", "storage-settings.json");
+const EXPENSE_LEDGER_FILE = "expense-ledger.json";
 
 function defaultStorage() {
   return resolveDefaultOutputRoot({
@@ -59,6 +72,26 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/storage-info" && request.method === "GET") {
     await handleStorageInfo(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/storage-settings" && request.method === "POST") {
+    await handleStorageSettingsUpdate(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/expense-ledger" && request.method === "GET") {
+    await handleExpenseLedgerRead(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/expense-ledger/upsert" && request.method === "POST") {
+    await handleExpenseLedgerUpsert(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/expense-ledger/delete" && request.method === "POST") {
+    await handleExpenseLedgerDelete(request, response);
     return;
   }
 
@@ -102,6 +135,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/travel-proof/proof-image-delete" && request.method === "POST") {
+    await handleProofImageDelete(request, response);
+    return;
+  }
+
   if (url.pathname === "/api/travel-proof/ppt-build" && request.method === "POST") {
     await handleProofPptBuild(request, response);
     return;
@@ -136,10 +174,95 @@ async function handleQuotes(url, response) {
 
 async function handleStorageInfo(response) {
   const storage = defaultStorage();
+  const settings = await readStorageSettings(storage.outputRoot);
   sendJson(response, {
     ok: true,
-    storage
+    storage,
+    storageSettings: settings,
+    effectiveStorageRoots: effectiveStorageRoots(storage.outputRoot, settings)
   });
+}
+
+async function handleStorageSettingsUpdate(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const storage = defaultStorage();
+    const settings = normalizeStorageSettings(body.storageSettings || body.overrides || {});
+    await writeStorageSettings(storage.outputRoot, settings);
+    sendJson(response, {
+      ok: true,
+      storage,
+      storageSettings: settings,
+      effectiveStorageRoots: effectiveStorageRoots(storage.outputRoot, settings)
+    });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleExpenseLedgerRead(response) {
+  try {
+    const ledger = await readExpenseLedger();
+    sendJson(response, { ok: true, ledger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleExpenseLedgerUpsert(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const incomingEntries = Array.isArray(body.entries) ? body.entries : [body.entry].filter(Boolean);
+    const ledger = await readExpenseLedger();
+    const nowIso = new Date().toISOString();
+    const byId = new Map((ledger.entries || []).map((entry) => [entry.id, entry]));
+
+    for (const incoming of incomingEntries) {
+      const normalized = normalizeLedgerEntry(incoming, nowIso);
+      const previous = byId.get(normalized.id);
+      if (previous?.savedPath && normalized.source === "coupang" && normalized.status === "confirmed" && normalized.type !== previous.type) {
+        normalized.savedPath = await moveLedgerProofFile(previous.savedPath, normalized);
+      }
+      byId.set(normalized.id, {
+        ...previous,
+        ...normalized,
+        createdAt: previous?.createdAt || normalized.createdAt,
+        updatedAt: nowIso
+      });
+    }
+
+    const nextLedger = {
+      version: 1,
+      updatedAt: nowIso,
+      entries: [...byId.values()].sort((left, right) =>
+        String(left.dateKey || "").localeCompare(String(right.dateKey || "")) ||
+        String(left.id || "").localeCompare(String(right.id || ""))
+      )
+    };
+    await writeExpenseLedger(nextLedger);
+    sendJson(response, { ok: true, ledger: nextLedger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function handleExpenseLedgerDelete(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const ids = new Set((body.ids || [body.id]).filter(Boolean).map(String));
+    const ledger = await readExpenseLedger();
+    const entriesToDelete = (ledger.entries || []).filter((entry) => ids.has(String(entry.id)));
+    await Promise.all(entriesToDelete.map((entry) => deleteLedgerProofFile(entry.savedPath)));
+    const nextLedger = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      entries: (ledger.entries || []).filter((entry) => !ids.has(String(entry.id)))
+    };
+    await writeExpenseLedger(nextLedger);
+    sendJson(response, { ok: true, ledger: nextLedger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
 }
 
 async function handleTravelProofPreview(request, response) {
@@ -180,7 +303,7 @@ async function handleTravelProofCaptureSave(request, response) {
     const body = await readJsonBody(request);
     const { captureNaverRoute } = await loadAutomationModule();
     const result = await captureNaverRoute(body.job);
-    const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const outputRoot = body.outputRoot || await storageRootFor("route");
     const monthKey = result.dateKey.slice(0, 7);
     const outputDirectory = join(outputRoot, monthKey, proofSubfolder("route"));
     await mkdir(outputDirectory, { recursive: true });
@@ -219,7 +342,7 @@ async function handleOilProofCaptureSave(request, response) {
     const body = await readJsonBody(request);
     const { captureOilPriceProof } = await loadAutomationModule();
     const result = await captureOilPriceProof(body.dateKey);
-    const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const outputRoot = body.outputRoot || await storageRootFor("oil");
     const monthKey = result.dateKey.slice(0, 7);
     const outputDirectory = join(outputRoot, monthKey, proofSubfolder("oil"));
     await mkdir(outputDirectory, { recursive: true });
@@ -256,7 +379,7 @@ async function handleCoupangProofCapture(request, response) {
 async function handleCoupangProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
-    const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const outputRoot = body.outputRoot || await storageRootFor("coupang");
     const { captureCoupangReceipts } = await loadAutomationModule();
     const result = await captureCoupangReceipts({ dateKeys: body.dateKeys || [] });
     const savedResults = [];
@@ -264,7 +387,8 @@ async function handleCoupangProofCaptureSave(request, response) {
     for (const receipt of result.results || []) {
       const monthKey = receipt.dateKey.slice(0, 7);
       const folderName = COUPANG_PROOF_FOLDERS[receipt.category] || COUPANG_PROOF_FOLDERS.review;
-      const outputDirectory = join(outputRoot, monthKey, folderName);
+      const categoryRoot = body.outputRoot || await storageRootFor(receipt.category);
+      const outputDirectory = join(categoryRoot || outputRoot, monthKey, folderName);
       await mkdir(outputDirectory, { recursive: true });
       const baseName = receiptFileBaseName({
         dateKey: receipt.dateKey,
@@ -274,19 +398,23 @@ async function handleCoupangProofCaptureSave(request, response) {
       const fileName = nextAvailableFileName(outputDirectory, `${baseName}.png`);
       const filePath = join(outputDirectory, fileName);
       await writeFile(filePath, Buffer.from(receipt.imageBase64, "base64"));
-      savedResults.push({
+      const savedReceipt = {
         ...receipt,
         savedPath: filePath,
         savedFileName: fileName
-      });
+      };
+      savedResults.push(savedReceipt);
     }
+
+    const ledger = await upsertLedgerEntries(savedResults.map(receiptToLedgerEntry));
 
     sendJson(response, {
       ok: true,
       result: {
         ...result,
         results: savedResults,
-        outputRoot
+        outputRoot,
+        ledger
       }
     });
   } catch (error) {
@@ -297,7 +425,7 @@ async function handleCoupangProofCaptureSave(request, response) {
 async function handleProofPptCreate(request, response) {
   try {
     const body = await readJsonBody(request);
-    const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const outputRoot = body.outputRoot || await storageRootFor("ppt");
     const monthKey = body.monthKey;
     if (!/^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
       throw new Error("PPT를 만들 기준 월이 필요합니다.");
@@ -328,7 +456,7 @@ async function handleProofPptCreate(request, response) {
 async function handleProofPptPreview(request, response) {
   try {
     const body = await readJsonBody(request);
-    const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const outputRoot = body.outputRoot || await storageRootFor("ppt");
     const monthKey = body.monthKey;
     if (!/^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
       throw new Error("PPT瑜?留뚮뱾 湲곗? ?붿씠 ?꾩슂?⑸땲??");
@@ -350,6 +478,34 @@ async function handleProofPptPreview(request, response) {
     });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleProofImageDelete(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const outputRoot = body.outputRoot || await storageRootFor("ppt");
+    const monthKey = body.monthKey;
+    const imageName = String(body.name || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
+      throw new Error("삭제할 기준 월이 필요합니다.");
+    }
+    if (!imageName || imageName.includes("..")) {
+      throw new Error("삭제할 파일명이 올바르지 않습니다.");
+    }
+
+    const monthDirectory = resolve(join(outputRoot, monthKey));
+    const filePath = resolve(join(monthDirectory, imageName));
+    if (!filePath.startsWith(`${monthDirectory}\\`) && filePath !== monthDirectory) {
+      throw new Error("월 폴더 밖의 파일은 삭제할 수 없습니다.");
+    }
+    if (!existsSync(filePath)) {
+      throw new Error("삭제할 파일을 찾지 못했습니다.");
+    }
+    await unlink(filePath);
+    sendJson(response, { ok: true, result: { deletedPath: filePath } });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
   }
 }
 
@@ -392,6 +548,174 @@ async function ensureProofMonthFolders(outputRoot, monthKey) {
   ]);
 }
 
+async function storageRootFor(key) {
+  const storage = defaultStorage();
+  const settings = await readStorageSettings(storage.outputRoot);
+  return settings[key] || storage.outputRoot;
+}
+
+function effectiveStorageRoots(defaultRoot, settings) {
+  return Object.fromEntries(STORAGE_SETTING_KEYS.map((key) => [key, settings[key] || defaultRoot]));
+}
+
+async function readStorageSettings(defaultRoot) {
+  const filePath = join(defaultRoot, STORAGE_SETTINGS_FILE);
+  try {
+    const text = await readFile(filePath, "utf8");
+    return normalizeStorageSettings(JSON.parse(text));
+  } catch {
+    return {};
+  }
+}
+
+async function writeStorageSettings(defaultRoot, settings) {
+  const filePath = join(defaultRoot, STORAGE_SETTINGS_FILE);
+  await mkdir(join(defaultRoot, "settings"), { recursive: true });
+  await writeFile(filePath, JSON.stringify(normalizeStorageSettings(settings), null, 2), "utf8");
+}
+
+function normalizeStorageSettings(settings) {
+  const normalized = {};
+  for (const key of STORAGE_SETTING_KEYS) {
+    const value = String(settings?.[key] || "").trim();
+    if (value) {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+async function readExpenseLedger() {
+  const ledgerRoot = await storageRootFor("ledger");
+  const filePath = join(ledgerRoot, EXPENSE_LEDGER_FILE);
+  try {
+    const text = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(text);
+    return {
+      version: 1,
+      updatedAt: parsed.updatedAt || "",
+      entries: Array.isArray(parsed.entries) ? parsed.entries.map((entry) => normalizeLedgerEntry(entry)) : []
+    };
+  } catch {
+    return { version: 1, updatedAt: "", entries: [] };
+  }
+}
+
+async function writeExpenseLedger(ledger) {
+  const ledgerRoot = await storageRootFor("ledger");
+  await mkdir(ledgerRoot, { recursive: true });
+  await writeFile(join(ledgerRoot, EXPENSE_LEDGER_FILE), JSON.stringify({
+    version: 1,
+    updatedAt: ledger.updatedAt || new Date().toISOString(),
+    entries: Array.isArray(ledger.entries) ? ledger.entries : []
+  }, null, 2), "utf8");
+}
+
+async function upsertLedgerEntries(entries) {
+  const ledger = await readExpenseLedger();
+  const nowIso = new Date().toISOString();
+  const byId = new Map((ledger.entries || []).map((entry) => [entry.id, entry]));
+  for (const entry of entries) {
+    const normalized = normalizeLedgerEntry(entry, nowIso);
+    const previous = byId.get(normalized.id);
+    if (previous?.savedPath && normalized.source === "coupang" && normalized.status === "confirmed" && normalized.type !== previous.type) {
+      normalized.savedPath = await moveLedgerProofFile(previous.savedPath, normalized);
+    }
+    byId.set(normalized.id, {
+      ...previous,
+      ...normalized,
+      createdAt: previous?.createdAt || normalized.createdAt,
+      updatedAt: nowIso
+    });
+  }
+  const nextLedger = {
+    version: 1,
+    updatedAt: nowIso,
+    entries: [...byId.values()].sort((left, right) =>
+      String(left.dateKey || "").localeCompare(String(right.dateKey || "")) ||
+      String(left.id || "").localeCompare(String(right.id || ""))
+    )
+  };
+  await writeExpenseLedger(nextLedger);
+  return nextLedger;
+}
+
+async function moveLedgerProofFile(currentPath, entry) {
+  const sourcePath = String(currentPath || "").trim();
+  if (!sourcePath || !existsSync(sourcePath)) {
+    return sourcePath;
+  }
+
+  const folderName = COUPANG_PROOF_FOLDERS[entry.type];
+  if (!folderName) {
+    return sourcePath;
+  }
+
+  const monthKey = String(entry.dateKey || "").slice(0, 7);
+  const targetRoot = await storageRootFor(entry.type);
+  const targetDirectory = join(targetRoot, monthKey, folderName);
+  await mkdir(targetDirectory, { recursive: true });
+  const targetName = nextAvailableFileName(targetDirectory, basename(sourcePath));
+  const targetPath = join(targetDirectory, targetName);
+  await copyFile(sourcePath, targetPath);
+  await unlink(sourcePath).catch(() => {});
+  return targetPath;
+}
+
+async function deleteLedgerProofFile(savedPath) {
+  const filePath = String(savedPath || "").trim();
+  if (!filePath || !existsSync(filePath)) {
+    return;
+  }
+  await unlink(filePath).catch(() => {});
+}
+
+function receiptToLedgerEntry(receipt) {
+  const category = ["welfare", "supply"].includes(receipt.category) ? receipt.category : "review";
+  return {
+    id: `coupang:${receipt.requestedDateKey || receipt.dateKey}:${receipt.amountWon || 0}:${receipt.savedFileName || receipt.fileName || ""}`,
+    dateKey: receipt.dateKey || receipt.requestedDateKey || "",
+    type: category,
+    source: "coupang",
+    amountWon: receipt.amountWon || 0,
+    items: receipt.items || [],
+    memo: receipt.reasons?.length ? `분류 근거: ${receipt.reasons.join(", ")}` : "",
+    status: category === "review" ? "review" : "confirmed",
+    savedPath: receipt.savedPath || "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeLedgerEntry(entry, nowIso = new Date().toISOString()) {
+  const source = entry?.source === "manual" ? "manual" : "coupang";
+  const type = ["welfare", "supply", "review"].includes(entry?.type) ? entry.type : "review";
+  const status = entry?.status === "confirmed" ? "confirmed" : "review";
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.dateKey || "")) ? String(entry.dateKey) : "";
+  if (!dateKey) {
+    throw new Error("장부 항목 날짜가 필요합니다.");
+  }
+  const amountWon = Math.max(0, Number(entry?.amountWon) || 0);
+  if (!amountWon) {
+    throw new Error("장부 항목 금액이 필요합니다.");
+  }
+  return {
+    id: String(entry?.id || `${source}:${dateKey}:${Date.now()}:${Math.random().toString(16).slice(2)}`),
+    dateKey,
+    type,
+    source,
+    amountWon,
+    items: Array.isArray(entry?.items)
+      ? entry.items.map((item) => String(item).trim()).filter(Boolean)
+      : String(entry?.items || "").split(/[,\n]/).map((item) => item.trim()).filter(Boolean),
+    memo: String(entry?.memo || "").trim(),
+    status,
+    savedPath: String(entry?.savedPath || "").trim(),
+    createdAt: entry?.createdAt || nowIso,
+    updatedAt: entry?.updatedAt || nowIso
+  };
+}
+
 async function readProofImagesFromMonthDirectory(monthDirectory, monthKey) {
   const { images } = await readProofImageCandidatesFromMonthDirectory(monthDirectory, monthKey);
   return images;
@@ -402,9 +726,9 @@ async function readProofImageCandidatesFromMonthDirectory(monthDirectory, monthK
     ["route", proofSubfolder("route")],
     ["oil", proofSubfolder("oil")],
     ...EXTRA_PROOF_FOLDER_ALIASES.map((folderName) => ["extra", folderName]),
-    ["extra", COUPANG_PROOF_FOLDERS.welfare],
-    ["extra", COUPANG_PROOF_FOLDERS.supply],
-    ["extra", COUPANG_PROOF_FOLDERS.review]
+    ["welfare", COUPANG_PROOF_FOLDERS.welfare],
+    ["supply", COUPANG_PROOF_FOLDERS.supply],
+    ["review", COUPANG_PROOF_FOLDERS.review]
   ];
   const images = [];
   const unmatchedImages = [];
@@ -497,7 +821,10 @@ async function groupsWithPreviewData(groups) {
       dateKey: group.dateKey,
       route: await imagesWithPreviewData(group.route),
       oil: await imagesWithPreviewData(group.oil),
-      extra: await imagesWithPreviewData(group.extra)
+      extra: await imagesWithPreviewData(group.extra),
+      welfare: await imagesWithPreviewData(group.welfare),
+      supply: await imagesWithPreviewData(group.supply),
+      review: await imagesWithPreviewData(group.review)
     });
   }
   return withData;

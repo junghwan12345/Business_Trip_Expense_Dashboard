@@ -15,10 +15,9 @@ const SUPPLY_KEYWORDS = [
   "멀티탭", "문구", "청소포", "쓰레기", "봉투", "마스크"
 ];
 
-export function parseCoupangCaptureDates(input, { year, month }) {
+export function parseCoupangCaptureDates(input, { year = new Date().getFullYear() } = {}) {
   const parsedYear = Number(year);
-  const parsedMonth = Number(month);
-  if (!Number.isInteger(parsedYear) || !Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+  if (!Number.isInteger(parsedYear)) {
     return [];
   }
 
