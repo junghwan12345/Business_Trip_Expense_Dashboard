@@ -60,7 +60,14 @@ export function coupangOrderDateCandidates(dateKey) {
     `${year}. ${String(month).padStart(2, "0")}. ${String(day).padStart(2, "0")} 주문`,
     `${year}년 ${month}월 ${day}일 주문`,
     `${month}. ${day} 주문`,
-    `${String(month).padStart(2, "0")}. ${String(day).padStart(2, "0")} 주문`
+    `${String(month).padStart(2, "0")}. ${String(day).padStart(2, "0")} 주문`,
+    `${year}. ${month}. ${day}`,
+    `${year}. ${String(month).padStart(2, "0")}. ${String(day).padStart(2, "0")}`,
+    `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    `${year}/${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}`,
+    `${year}년 ${month}월 ${day}일`,
+    `${month}. ${day}`,
+    `${String(month).padStart(2, "0")}. ${String(day).padStart(2, "0")}`
   ];
 }
 

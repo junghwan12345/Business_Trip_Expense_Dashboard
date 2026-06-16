@@ -11,6 +11,10 @@ import {
 import { extractRouteDistanceKm, parseFuelPriceWon } from "./travel-proof.js";
 
 const DEBUG_PORT = 9222;
+const COUPANG_ORDER_LIST_URL = "https://mc.coupang.com/ssr/desktop/order/list";
+const COUPANG_LOGIN_WAIT_MS = 5 * 60 * 1000;
+const COUPANG_ORDER_SEARCH_PAGES = 12;
+const COUPANG_ORDER_SEARCH_SCROLLS = 14;
 const CHROME_PATHS = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
@@ -125,13 +129,8 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
   try {
     await client.call("Page.enable");
     await client.call("Runtime.enable");
-    await navigate(client, "https://mc.coupang.com/ssr/desktop/order/list");
-    await waitFor(client, "document.body.innerText.includes('주문') || location.href.includes('login')", 25000);
-
-    const loginText = await evaluate(client, "document.body.innerText", true);
-    if (String(loginText.result.result.value || "").includes("로그인")) {
-      throw new Error("쿠팡 로그인이 필요합니다. 자동화 Chrome에서 쿠팡에 로그인한 뒤 다시 실행해 주세요.");
-    }
+    await navigate(client, COUPANG_ORDER_LIST_URL);
+    await waitForCoupangOrderList(client);
 
     for (const dateKey of dateKeys) {
       const capturedForDate = await captureCoupangDateReceipts(client, dateKey).catch((error) => {
@@ -139,7 +138,8 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
         return [];
       });
       results.push(...capturedForDate);
-      await navigate(client, "https://mc.coupang.com/ssr/desktop/order/list");
+      await navigate(client, COUPANG_ORDER_LIST_URL);
+      await waitForCoupangOrderList(client);
     }
 
     return { results, failures };
@@ -151,7 +151,7 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
 
 async function captureCoupangDateReceipts(client, dateKey) {
   const candidates = coupangOrderDateCandidates(dateKey);
-  const orderCount = await countCoupangOrdersForDate(client, candidates);
+  const orderCount = await countCoupangOrdersForDateWithScroll(client, candidates);
   if (!orderCount) {
     throw new Error("해당 날짜 주문을 찾지 못했습니다.");
   }
@@ -162,9 +162,8 @@ async function captureCoupangDateReceipts(client, dateKey) {
     if (!opened) {
       throw new Error("주문 상세보기 버튼을 찾지 못했습니다.");
     }
-    await delay(2500);
 
-    const receiptButton = await clickCoupangReceiptButton(client);
+    const receiptButton = await waitUntil(async () => clickCoupangReceiptButton(client), 15000);
     if (!receiptButton) {
       throw new Error("거래명세서 버튼을 찾지 못했습니다.");
     }
@@ -214,7 +213,8 @@ async function captureCoupangDateReceipts(client, dateKey) {
       }
     }
 
-    await navigate(client, "https://mc.coupang.com/ssr/desktop/order/list");
+    await navigate(client, COUPANG_ORDER_LIST_URL);
+    await waitForCoupangOrderList(client);
   }
   return captures;
 }
@@ -430,21 +430,172 @@ async function visibleControls(client) {
   return result.result.result.value || [];
 }
 
+async function waitForCoupangOrderList(client) {
+  const ok = await waitUntil(async () => {
+    const result = await evaluate(client, `
+      (() => {
+        const text = (document.body?.innerText || '').replace(/\\s+/g, ' ');
+        const isLoginPage = location.href.includes('login') ||
+          (text.includes('로그인') && (text.includes('아이디') || text.includes('비밀번호')));
+        const looksLikeOrderList = location.href.includes('/order/list') &&
+          (text.includes('주문') || text.includes('구매') || text.includes('최근'));
+        return !isLoginPage && looksLikeOrderList;
+      })()
+    `, true).catch(() => null);
+    return Boolean(result?.result?.result?.value);
+  }, COUPANG_LOGIN_WAIT_MS);
+
+  if (!ok) {
+    throw new Error("쿠팡 로그인 완료를 확인하지 못했습니다. 열린 자동화 Chrome에서 로그인 후 주문목록이 보일 때까지 기다려 주세요.");
+  }
+}
+
+async function scrollCoupangOrderListToTop(client) {
+  await evaluate(client, "window.scrollTo({ top: 0, behavior: 'instant' })", true).catch(() => {});
+  await delay(700);
+}
+
+async function scrollCoupangOrderListNext(client) {
+  await evaluate(client, `
+    (() => {
+      window.scrollBy({ top: Math.max(500, Math.floor(window.innerHeight * 0.8)), behavior: 'instant' });
+    })()
+  `, true).catch(() => null);
+  await delay(1200);
+}
+
+async function countCoupangOrdersForDateWithScroll(client, candidates) {
+  for (let page = 1; page <= COUPANG_ORDER_SEARCH_PAGES; page += 1) {
+    const orderCount = await countCoupangOrdersForDateOnCurrentPage(client, candidates);
+    if (orderCount) {
+      return orderCount;
+    }
+
+    const moved = await clickCoupangNextOrderPage(client);
+    if (!moved) {
+      return 0;
+    }
+  }
+
+  return 0;
+}
+
+async function countCoupangOrdersForDateOnCurrentPage(client, candidates) {
+  await scrollCoupangOrderListToTop(client);
+
+  for (let attempt = 0; attempt <= COUPANG_ORDER_SEARCH_SCROLLS; attempt += 1) {
+    const orderCount = await countCoupangOrdersForDate(client, candidates);
+    if (orderCount) {
+      return orderCount;
+    }
+
+    await scrollCoupangOrderListNext(client);
+  }
+
+  return 0;
+}
+
+async function clickCoupangNextOrderPage(client) {
+  await evaluate(client, "window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })", true).catch(() => {});
+  await delay(700);
+
+  const result = await evaluate(client, `
+    (() => {
+      const controls = [...document.querySelectorAll('a,button,[role=button]')]
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          const text = (element.innerText || element.getAttribute('aria-label') || element.getAttribute('title') || '').trim().replace(/\\s+/g, ' ');
+          const disabled = element.disabled ||
+            element.getAttribute('aria-disabled') === 'true' ||
+            /disabled/i.test(String(element.className || ''));
+          return { element, rect, text, disabled };
+        })
+        .filter((item) => item.rect.width > 0 && item.rect.height > 0 && !item.disabled);
+
+      const hit = controls.find((item) =>
+        item.text === '다음' ||
+        item.text.includes('다음') ||
+        item.text.toLowerCase() === 'next' ||
+        item.text.includes('>')
+      );
+      if (!hit) return null;
+
+      hit.element.scrollIntoView({ block: 'center', inline: 'center' });
+      const rect = hit.element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height, text: hit.text };
+    })()
+  `, true);
+
+  const hit = result.result.result.value;
+  if (!hit) {
+    return false;
+  }
+
+  const before = await coupangOrderListSignature(client);
+  await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
+  await delay(1800);
+  await waitForCoupangOrderList(client);
+
+  return waitUntil(async () => {
+    const after = await coupangOrderListSignature(client);
+    return after && after !== before;
+  }, 8000);
+}
+
+async function coupangOrderListSignature(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const text = (document.body?.innerText || '').trim().replace(/\\s+/g, ' ');
+      return [location.href, text.slice(0, 5000), window.scrollY].join('\\n');
+    })()
+  `, true).catch(() => null);
+  return result?.result?.result?.value || "";
+}
+
 async function countCoupangOrdersForDate(client, candidates) {
   const result = await evaluate(client, `
     (() => {
       const candidates = ${JSON.stringify(candidates)};
-      const blocks = [...document.querySelectorAll('body *')]
-        .filter((element) => {
+      const normalize = (value) => (value || '').trim().replace(/\\s+/g, ' ');
+      const matchesDate = (text) => candidates.some((candidate) => text.includes(candidate));
+      const visibleItems = [...document.querySelectorAll('body *')]
+        .map((element) => {
           const rect = element.getBoundingClientRect();
-          const text = (element.innerText || '').trim().replace(/\\s+/g, ' ');
-          return rect.width > 250 &&
-            rect.height > 40 &&
-            text.includes('주문 상세보기') &&
-            candidates.some((candidate) => text.includes(candidate));
-        });
+          const text = normalize(element.innerText || element.getAttribute('aria-label') || '');
+          return { element, rect, text };
+        })
+        .filter((item) => item.rect.width > 0 && item.rect.height > 0);
+      const detailLinks = visibleItems.filter((item) => item.text === '주문 상세보기');
+      const dateHeaders = visibleItems
+        .filter((item) =>
+          matchesDate(item.text) &&
+          item.text.length <= 140 &&
+          item.rect.height <= 90 &&
+          !item.text.includes('주문 상세보기') &&
+          !item.text.includes('배송') &&
+          !item.text.includes('장바구니') &&
+          !item.text.includes('리뷰')
+        )
+        .sort((left, right) => (left.rect.y - right.rect.y) || (left.rect.x - right.rect.x));
+      const hits = dateHeaders
+        .map((header) => detailLinks.find((link) =>
+          Math.abs(link.rect.y - header.rect.y) <= 90 ||
+          (link.rect.y >= header.rect.y - 30 && link.rect.y <= header.rect.y + 260)
+        ))
+        .filter(Boolean);
+      if (hits.length) {
+        return [...new Set(hits.map((hit) => Math.round(hit.rect.x) + ',' + Math.round(hit.rect.y)))].length;
+      }
+
+      const blocks = visibleItems
+        .filter((item) =>
+          item.rect.width > 250 &&
+          item.rect.height > 40 &&
+          item.text.includes('주문 상세보기') &&
+          matchesDate(item.text)
+        );
       return blocks.filter((block) =>
-        !blocks.some((other) => other !== block && other.contains(block) && other.innerText.includes('주문 상세보기'))
+        !blocks.some((other) => other !== block && other.element.contains(block.element) && other.text.includes('주문 상세보기'))
       ).length || blocks.length;
     })()
   `, true);
@@ -452,12 +603,35 @@ async function countCoupangOrdersForDate(client, candidates) {
 }
 
 async function clickCoupangOrderDetailForDate(client, candidates, orderIndex) {
-  const hit = await findCoupangOrderDetailForDate(client, candidates, orderIndex);
-  if (!hit) {
-    return false;
+  for (let page = 1; page <= COUPANG_ORDER_SEARCH_PAGES; page += 1) {
+    const clicked = await clickCoupangOrderDetailForDateOnCurrentPage(client, candidates, orderIndex);
+    if (clicked) {
+      return true;
+    }
+
+    const moved = await clickCoupangNextOrderPage(client);
+    if (!moved) {
+      return false;
+    }
   }
-  await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
-  return true;
+
+  return false;
+}
+
+async function clickCoupangOrderDetailForDateOnCurrentPage(client, candidates, orderIndex) {
+  await scrollCoupangOrderListToTop(client);
+
+  for (let attempt = 0; attempt <= COUPANG_ORDER_SEARCH_SCROLLS; attempt += 1) {
+    const hit = await findCoupangOrderDetailForDate(client, candidates, orderIndex);
+    if (hit) {
+      await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
+      return true;
+    }
+
+    await scrollCoupangOrderListNext(client);
+  }
+
+  return false;
 }
 
 async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
@@ -465,16 +639,56 @@ async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
     (() => {
       const candidates = ${JSON.stringify(candidates)};
       const orderIndex = ${Number(orderIndex) || 0};
-      const blocks = [...document.querySelectorAll('body *')]
+      const normalize = (value) => (value || '').trim().replace(/\\s+/g, ' ');
+      const matchesDate = (text) => candidates.some((candidate) => text.includes(candidate));
+      const visibleItems = [...document.querySelectorAll('body *')]
         .map((element) => {
           const rect = element.getBoundingClientRect();
-          const text = (element.innerText || '').trim().replace(/\\s+/g, ' ');
+          const text = normalize(element.innerText || element.getAttribute('aria-label') || '');
           return { element, rect, text };
         })
+        .filter((item) => item.rect.width > 0 && item.rect.height > 0);
+      const detailLinks = visibleItems
+        .filter((item) => item.text === '주문 상세보기')
+        .sort((left, right) => (left.rect.y - right.rect.y) || (left.rect.x - right.rect.x));
+      const dateHeaders = visibleItems
+        .filter((item) =>
+          matchesDate(item.text) &&
+          item.text.length <= 140 &&
+          item.rect.height <= 90 &&
+          !item.text.includes('주문 상세보기') &&
+          !item.text.includes('배송') &&
+          !item.text.includes('장바구니') &&
+          !item.text.includes('리뷰')
+        )
+        .sort((left, right) => (left.rect.y - right.rect.y) || (left.rect.x - right.rect.x));
+      const headerHits = dateHeaders
+        .map((header) => ({
+          header,
+          link: detailLinks.find((link) =>
+            Math.abs(link.rect.y - header.rect.y) <= 90 ||
+            (link.rect.y >= header.rect.y - 30 && link.rect.y <= header.rect.y + 260)
+          )
+        }))
+        .filter((item) => item.link);
+      const uniqueHeaderHits = headerHits.filter((item, index, list) =>
+        list.findIndex((other) =>
+          Math.abs(other.link.rect.x - item.link.rect.x) < 2 &&
+          Math.abs(other.link.rect.y - item.link.rect.y) < 2
+        ) === index
+      );
+      const headerHit = uniqueHeaderHits[orderIndex] || uniqueHeaderHits[0];
+      if (headerHit) {
+        headerHit.link.element.scrollIntoView({ block: 'center', inline: 'center' });
+        const rect = headerHit.link.element.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+      }
+
+      const blocks = visibleItems
         .filter((item) =>
           item.rect.width > 250 &&
           item.rect.height > 40 &&
-          candidates.some((candidate) => item.text.includes(candidate)) &&
+          matchesDate(item.text) &&
           item.text.includes('주문 상세보기')
         )
         .sort((left, right) => (left.rect.y - right.rect.y) || (left.rect.x - right.rect.x));
@@ -484,12 +698,14 @@ async function findCoupangOrderDetailForDate(client, candidates, orderIndex) {
         .map((element) => {
           const rect = element.getBoundingClientRect();
           const text = (element.innerText || element.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
-          return { rect, text };
+          return { element, rect, text };
         })
         .filter((item) => item.rect.width > 0 && item.rect.height > 0 && item.text.includes('주문 상세보기'));
       const hit = buttons[0];
       if (!hit) return null;
-      return { x: hit.rect.x, y: hit.rect.y, w: hit.rect.width, h: hit.rect.height };
+      hit.element.scrollIntoView({ block: 'center', inline: 'center' });
+      const rect = hit.element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
     })()
   `, true);
   return result.result.result.value || null;
@@ -502,11 +718,13 @@ async function clickCoupangReceiptButton(client) {
         .map((element) => {
           const rect = element.getBoundingClientRect();
           const text = (element.innerText || element.value || element.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
-          return { rect, text };
+          return { element, rect, text };
         })
         .find((item) => item.rect.width > 0 && item.rect.height > 0 && item.text.includes('거래명세서'));
       if (!hit) return null;
-      return { x: hit.rect.x, y: hit.rect.y, w: hit.rect.width, h: hit.rect.height };
+      hit.element.scrollIntoView({ block: 'center', inline: 'center' });
+      const rect = hit.element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
     })()
   `, true);
   const hit = result.result.result.value;

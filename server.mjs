@@ -19,7 +19,6 @@ import {
   buildMonthlyProofGroups,
   parseTravelProofTable
 } from "./src/travel-proof/travel-proof.js";
-import { captureCoupangReceipts, captureNaverRoute, captureOilPriceProof } from "./src/travel-proof/naver-map-automation.js";
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
@@ -40,6 +39,10 @@ const contentTypes = {
   ".svg": "image/svg+xml",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
+
+async function loadAutomationModule() {
+  return import(`./src/travel-proof/naver-map-automation.js?updated=${Date.now()}`);
+}
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://localhost:${port}`);
@@ -164,6 +167,7 @@ async function handleTravelProofPreview(request, response) {
 async function handleTravelProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
+    const { captureNaverRoute } = await loadAutomationModule();
     const result = await captureNaverRoute(body.job);
     sendJson(response, { ok: true, result });
   } catch (error) {
@@ -174,6 +178,7 @@ async function handleTravelProofCapture(request, response) {
 async function handleTravelProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
+    const { captureNaverRoute } = await loadAutomationModule();
     const result = await captureNaverRoute(body.job);
     const outputRoot = body.outputRoot || defaultStorage().outputRoot;
     const monthKey = result.dateKey.slice(0, 7);
@@ -201,6 +206,7 @@ async function handleTravelProofCaptureSave(request, response) {
 async function handleOilProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
+    const { captureOilPriceProof } = await loadAutomationModule();
     const result = await captureOilPriceProof(body.dateKey);
     sendJson(response, { ok: true, result });
   } catch (error) {
@@ -211,6 +217,7 @@ async function handleOilProofCapture(request, response) {
 async function handleOilProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
+    const { captureOilPriceProof } = await loadAutomationModule();
     const result = await captureOilPriceProof(body.dateKey);
     const outputRoot = body.outputRoot || defaultStorage().outputRoot;
     const monthKey = result.dateKey.slice(0, 7);
@@ -238,6 +245,7 @@ async function handleOilProofCaptureSave(request, response) {
 async function handleCoupangProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
+    const { captureCoupangReceipts } = await loadAutomationModule();
     const result = await captureCoupangReceipts({ dateKeys: body.dateKeys || [] });
     sendJson(response, { ok: true, result });
   } catch (error) {
@@ -249,6 +257,7 @@ async function handleCoupangProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
     const outputRoot = body.outputRoot || defaultStorage().outputRoot;
+    const { captureCoupangReceipts } = await loadAutomationModule();
     const result = await captureCoupangReceipts({ dateKeys: body.dateKeys || [] });
     const savedResults = [];
 
