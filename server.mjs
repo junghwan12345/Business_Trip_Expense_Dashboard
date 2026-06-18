@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/p
 import { basename, extname, join, normalize, resolve } from "node:path";
 import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/dashboard/market-data.js";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
+import { normalizeCorporateCardEntry } from "./src/travel-proof/corporate-card.js";
 import { buildProofPptxBuffer } from "./src/travel-proof/proof-ppt-generator.js";
 import {
   EXTRA_PROOF_FOLDER_ALIASES,
@@ -35,6 +36,7 @@ const STORAGE_SETTING_KEYS = [
 ];
 const STORAGE_SETTINGS_FILE = join("settings", "storage-settings.json");
 const EXPENSE_LEDGER_FILE = "expense-ledger.json";
+const CORPORATE_CARD_LEDGER_FILE = "corporate-card-ledger.json";
 
 function defaultStorage() {
   return resolveDefaultOutputRoot({
@@ -92,6 +94,21 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/expense-ledger/delete" && request.method === "POST") {
     await handleExpenseLedgerDelete(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/corporate-card-ledger" && request.method === "GET") {
+    await handleCorporateCardLedgerRead(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/corporate-card-ledger/upsert" && request.method === "POST") {
+    await handleCorporateCardLedgerUpsert(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/corporate-card-ledger/delete" && request.method === "POST") {
+    await handleCorporateCardLedgerDelete(request, response);
     return;
   }
 
@@ -259,6 +276,63 @@ async function handleExpenseLedgerDelete(request, response) {
       entries: (ledger.entries || []).filter((entry) => !ids.has(String(entry.id)))
     };
     await writeExpenseLedger(nextLedger);
+    sendJson(response, { ok: true, ledger: nextLedger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function handleCorporateCardLedgerRead(response) {
+  try {
+    const ledger = await readCorporateCardLedger();
+    sendJson(response, { ok: true, ledger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleCorporateCardLedgerUpsert(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const incomingEntries = Array.isArray(body.entries) ? body.entries : [body.entry].filter(Boolean);
+    const ledger = await readCorporateCardLedger();
+    const nowIso = new Date().toISOString();
+    const byId = new Map((ledger.entries || []).map((entry) => [entry.id, entry]));
+
+    for (const incoming of incomingEntries) {
+      const normalized = normalizeCorporateCardEntry(incoming, nowIso);
+      const previous = byId.get(normalized.id);
+      byId.set(normalized.id, {
+        ...previous,
+        ...normalized,
+        createdAt: previous?.createdAt || normalized.createdAt,
+        updatedAt: nowIso
+      });
+    }
+
+    const nextLedger = {
+      version: 1,
+      updatedAt: nowIso,
+      entries: sortCorporateCardEntries([...byId.values()])
+    };
+    await writeCorporateCardLedger(nextLedger);
+    sendJson(response, { ok: true, ledger: nextLedger });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function handleCorporateCardLedgerDelete(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const ids = new Set((body.ids || [body.id]).filter(Boolean).map(String));
+    const ledger = await readCorporateCardLedger();
+    const nextLedger = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      entries: sortCorporateCardEntries((ledger.entries || []).filter((entry) => !ids.has(String(entry.id))))
+    };
+    await writeCorporateCardLedger(nextLedger);
     sendJson(response, { ok: true, ledger: nextLedger });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 400);
@@ -609,6 +683,42 @@ async function writeExpenseLedger(ledger) {
     updatedAt: ledger.updatedAt || new Date().toISOString(),
     entries: Array.isArray(ledger.entries) ? ledger.entries : []
   }, null, 2), "utf8");
+}
+
+async function readCorporateCardLedger() {
+  const ledgerRoot = defaultStorage().outputRoot;
+  const filePath = join(ledgerRoot, CORPORATE_CARD_LEDGER_FILE);
+  try {
+    const text = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(text);
+    return {
+      version: 1,
+      updatedAt: parsed.updatedAt || "",
+      entries: sortCorporateCardEntries(
+        Array.isArray(parsed.entries) ? parsed.entries.map((entry) => normalizeCorporateCardEntry(entry)) : []
+      )
+    };
+  } catch {
+    return { version: 1, updatedAt: "", entries: [] };
+  }
+}
+
+async function writeCorporateCardLedger(ledger) {
+  const ledgerRoot = defaultStorage().outputRoot;
+  await mkdir(ledgerRoot, { recursive: true });
+  await writeFile(join(ledgerRoot, CORPORATE_CARD_LEDGER_FILE), JSON.stringify({
+    version: 1,
+    updatedAt: ledger.updatedAt || new Date().toISOString(),
+    entries: sortCorporateCardEntries(Array.isArray(ledger.entries) ? ledger.entries : [])
+  }, null, 2), "utf8");
+}
+
+function sortCorporateCardEntries(entries) {
+  return entries.sort((left, right) =>
+    String(right.dateKey || "").localeCompare(String(left.dateKey || "")) ||
+    String(left.merchantName || "").localeCompare(String(right.merchantName || "")) ||
+    Number(right.amountWon || 0) - Number(left.amountWon || 0)
+  );
 }
 
 async function upsertLedgerEntries(entries) {

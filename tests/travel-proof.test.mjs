@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  FIELD_VISIT_EXPENSE_ITEMS,
+  buildActivityExpensePasteRows,
+  buildFieldVisitExpensePasteRows,
   buildMonthlyProofGroups,
   buildFuelExpensePasteRows,
   canRetryFailedCapture,
   canRunCapture,
+  calculateActivityExpenseAmount,
   calculateFuelExpenseAmount,
   createCaptureJobs,
   createManualProofGroup,
@@ -82,6 +86,26 @@ test("calculateFuelExpenseAmount rounds distance divided by 8 times fuel price",
   assert.equal(calculateFuelExpenseAmount(27, 2011), 6787);
 });
 
+test("calculateActivityExpenseAmount uses 100km threshold", () => {
+  assert.equal(calculateActivityExpenseAmount(99.9), 5000);
+  assert.equal(calculateActivityExpenseAmount(100), 20000);
+});
+
+test("field visit item options match company dropdown values", () => {
+  assert.deepEqual(FIELD_VISIT_EXPENSE_ITEMS, [
+    "숙박비",
+    "항공권·철도승차권",
+    "대중교통",
+    "유류대",
+    "통행료(법인카드)",
+    "통행료(개인카드)",
+    "주차비",
+    "일비",
+    "활동비",
+    "기타"
+  ]);
+});
+
 test("buildFuelExpensePasteRows creates Excel-ready usage date through note columns", () => {
   const group = {
     dateKey: "2026-05-08",
@@ -95,7 +119,38 @@ test("buildFuelExpensePasteRows creates Excel-ready usage date through note colu
     { group, distanceKm: 27, fuelPriceWon: 2011 }
   ]);
 
-  assert.equal(rows[0].text, "2026-05-08\t유류대\t\t6,787\t하이라이트 대구 / (주)후(WHO)\t27/8*2011");
+  assert.equal(rows[0].text, "2026-05-08\t유류대\t\t\t\t6,787\t하이라이트 대구 / (주)후(WHO)\t27/8*2011");
+});
+
+test("buildActivityExpensePasteRows creates field visit activity fee rows", () => {
+  const group = {
+    dateKey: "2026-05-08",
+    sourceRows: [
+      { dealerName: "하이라이트 대구" },
+      { dealerName: "(주)후(WHO)" }
+    ]
+  };
+
+  const rows = buildActivityExpensePasteRows([
+    { group, distanceKm: 100 }
+  ]);
+
+  assert.equal(rows[0].text, "2026-05-08\t활동비\t\t\t\t20,000\t하이라이트 대구 / (주)후(WHO)\t이동거리 100km 기준 활동비");
+});
+
+test("buildFieldVisitExpensePasteRows creates fuel and activity rows for the same date", () => {
+  const group = {
+    dateKey: "2026-05-08",
+    sourceRows: [{ dealerName: "하이라이트 대구" }]
+  };
+
+  const rows = buildFieldVisitExpensePasteRows([
+    { group, distanceKm: 99.9, fuelPriceWon: 2011 }
+  ]);
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].text, "2026-05-08\t유류대\t\t\t\t25,112\t하이라이트 대구\t99.9/8*2011");
+  assert.equal(rows[1].text, "2026-05-08\t활동비\t\t\t\t5,000\t하이라이트 대구\t이동거리 99.9km 기준 활동비");
 });
 
 test("createManualProofGroup builds a separate same-day capture item without Uplus prefix", () => {
@@ -139,7 +194,7 @@ test("buildFuelExpensePasteRows keeps same-day manual and Excel rows separate", 
   ]);
 
   assert.notEqual(rows[0].key, rows[1].key);
-  assert.equal(rows[1].text, "2026-05-08\t유류대\t\t2,514\t대구 진석타워 주차장\t10/8*2011");
+  assert.equal(rows[1].text, "2026-05-08\t유류대\t\t\t\t2,514\t대구 진석타워 주차장\t10/8*2011");
 });
 
 test("buildMonthlyProofGroups groups rows by date and orders morning before afternoon", () => {

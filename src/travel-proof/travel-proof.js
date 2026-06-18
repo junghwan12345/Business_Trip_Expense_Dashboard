@@ -1,5 +1,19 @@
 const REQUIRED_HEADERS = ["POS명", "POS주소", "날짜", "시간"];
 const TIME_ORDER = { 오전: 0, 오후: 1 };
+export const FIELD_VISIT_EXPENSE_ITEMS = [
+  "숙박비",
+  "항공권·철도승차권",
+  "대중교통",
+  "유류대",
+  "통행료(법인카드)",
+  "통행료(개인카드)",
+  "주차비",
+  "일비",
+  "활동비",
+  "기타"
+];
+
+const FIELD_VISIT_EXCEL_COLUMN_SPANS = [1, 2, 2, 1, 1, 1];
 
 export function parseTravelProofTable(text) {
   const lines = String(text || "")
@@ -226,6 +240,10 @@ export function calculateFuelExpenseAmount(distanceKm, fuelPriceWon) {
   return Math.round((Number(distanceKm) / 8) * Number(fuelPriceWon));
 }
 
+export function calculateActivityExpenseAmount(distanceKm) {
+  return Number(distanceKm) >= 100 ? 20000 : 5000;
+}
+
 export function buildFuelExpensePasteRows(entries) {
   return entries.map((entry) => {
     const distanceKm = Number(entry.distanceKm);
@@ -249,9 +267,42 @@ export function buildFuelExpensePasteRows(entries) {
       amount,
       note,
       summary,
-      text: cells.join("\t")
+      text: excelPasteLine(cells, FIELD_VISIT_EXCEL_COLUMN_SPANS)
     };
   });
+}
+
+export function buildActivityExpensePasteRows(entries) {
+  return entries.map((entry) => {
+    const distanceKm = Number(entry.distanceKm);
+    const amount = calculateActivityExpenseAmount(distanceKm);
+    const distanceText = formatDistanceForFormula(distanceKm);
+    const summary = dealerSummary(entry.group);
+    const cells = [
+      entry.group.dateKey,
+      "활동비",
+      "",
+      formatWon(amount),
+      summary,
+      `이동거리 ${distanceText}km 기준 활동비`
+    ];
+
+    return {
+      key: `${proofGroupKey(entry.group)}:activity`,
+      dateKey: entry.group.dateKey,
+      amount,
+      note: cells.at(-1),
+      summary,
+      text: excelPasteLine(cells, FIELD_VISIT_EXCEL_COLUMN_SPANS)
+    };
+  });
+}
+
+export function buildFieldVisitExpensePasteRows(entries) {
+  return entries.flatMap((entry) => [
+    ...buildFuelExpensePasteRows([entry]),
+    ...buildActivityExpensePasteRows([entry])
+  ]);
 }
 
 export function sanitizeFilePart(value) {
@@ -264,6 +315,15 @@ export function sanitizeFilePart(value) {
 
 function splitRow(line) {
   return String(line).split("\t");
+}
+
+function excelPasteLine(values, columnSpans = []) {
+  return values
+    .flatMap((value, index) => {
+      const span = Math.max(1, Math.trunc(Number(columnSpans[index]) || 1));
+      return [value, ...Array(span - 1).fill("")];
+    })
+    .join("\t");
 }
 
 function normalizeHeader(header) {

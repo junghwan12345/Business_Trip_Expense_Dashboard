@@ -382,27 +382,32 @@ button:disabled {
 
 .advanced-settings,
 .drive-guide {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-soft);
-  padding: 12px 14px;
-  margin: 12px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px 0;
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.advanced-settings summary {
+.advanced-settings summary,
+.drive-guide summary {
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 600;
 }
 
-.drive-guide strong {
-  display: block;
-  margin-bottom: 6px;
+.advanced-settings[open],
+.drive-guide[open] {
+  padding: 8px 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
 }
 
 .drive-guide p {
   margin: 3px 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .table-paste-label {
@@ -603,6 +608,77 @@ progress {
   margin-top: 16px;
 }
 
+.corporate-card-list-panel {
+  margin-top: 16px;
+}
+
+.corporate-card-panel textarea {
+  min-height: 170px;
+}
+
+.corporate-card-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.corporate-card-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+}
+
+.corporate-card-table th,
+.corporate-card-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.corporate-card-table th {
+  color: var(--muted);
+  background: #f8fafc;
+  font-weight: 850;
+}
+
+.corporate-card-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.corporate-card-table input,
+.corporate-card-table select {
+  min-width: 120px;
+  padding: 8px 9px;
+  border-radius: 10px;
+}
+
+.corporate-card-table .memo-input {
+  min-width: 180px;
+}
+
+.corporate-card-table .amount-cell {
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.corporate-card-table .status-cell {
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.corporate-card-table .status-confirmed {
+  color: var(--success);
+}
+
+.corporate-card-table .status-excluded {
+  color: var(--danger);
+}
+
 .ledger-panel,
 .storage-settings-panel {
   margin-top: 16px;
@@ -704,6 +780,21 @@ progress {
   gap: 14px;
 }
 
+.proof-preview-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.proof-preview-toolbar .folder-label {
+  margin: 0;
+}
+
 .proof-preview-card {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -747,6 +838,16 @@ progress {
   overflow: hidden;
 }
 
+.proof-select-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 9px;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .proof-thumb-grid img {
   display: block;
   width: 100%;
@@ -762,6 +863,12 @@ progress {
   font-size: 12px;
   line-height: 1.35;
   word-break: break-all;
+}
+
+.proof-delete-button {
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+  border: 1px solid rgba(220, 38, 38, 0.28);
 }
 
 ul {
@@ -829,7 +936,7 @@ li {
   }
 
   .side-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .content-grid,

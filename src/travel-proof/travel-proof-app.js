@@ -1,5 +1,5 @@
 import {
-  buildFuelExpensePasteRows,
+  buildFieldVisitExpensePasteRows,
   canRetryFailedCapture,
   canRunCapture,
   createManualProofGroup,
@@ -12,6 +12,21 @@ import {
   parseCoupangCaptureDates,
   receiptFileBaseName
 } from "./coupang-proof.js";
+import {
+  CORPORATE_CARD_EXPENSE_ITEMS,
+  CORPORATE_CARD_TARGET_SHEETS,
+  normalizeCorporateCardEntry,
+  parseCorporateCardPaste
+} from "./corporate-card.js";
+import {
+  GENERAL_TRAVEL_ITEMS,
+  buildCorporateCardFieldVisitPasteRows,
+  buildCorporateCardGeneralTravelPasteRows,
+  buildCorporateCardPasteRows,
+  buildGeneralTravelPasteRows,
+  normalizeManualExpenseEntry,
+  pasteText
+} from "./expense-excel.js";
 import {
   EXTRA_PROOF_FOLDER_ALIASES,
   groupProofImagesByDate,
@@ -26,6 +41,7 @@ const PPT_IMAGE_MAX_SIDE = 2200;
 const PPT_IMAGE_JPEG_QUALITY = 0.88;
 const AUTO_PREVIEW_DELAY_MS = 450;
 const AUTO_PROOF_PREVIEW_DELAY_MS = 350;
+const GENERAL_TRAVEL_STORAGE_KEY = "travel-proof:general-travel-entries";
 const STORAGE_CLEANUP_FOLDERS = [
   "거리캡처",
   "유가캡처",
@@ -35,17 +51,23 @@ const STORAGE_CLEANUP_FOLDERS = [
   COUPANG_PROOF_FOLDERS.review,
   "PPT"
 ];
-const STORAGE_SETTING_LABELS = {
-  route: "거리캡처",
-  oil: "유가캡처",
-  extra: "추가증빙",
-  coupang: "쿠팡 거래명세서",
-  welfare: "조활비",
-  supply: "소모품비",
-  review: "확인필요",
-  ppt: "PPT",
-  ledger: "장부 JSON"
-};
+const STORAGE_SETTING_GROUPS = [
+  {
+    key: "distanceOil",
+    label: "거리유류대",
+    keys: ["route", "oil", "extra"]
+  },
+  {
+    key: "coupangExpenses",
+    label: "조활비·소모품비",
+    keys: ["coupang", "welfare", "supply", "review", "ledger"]
+  },
+  {
+    key: "ppt",
+    label: "지출결의서 PPT",
+    keys: ["ppt"]
+  }
+];
 let autoPreviewTimer = null;
 let autoProofPreviewTimer = null;
 
@@ -56,6 +78,8 @@ const state = {
   fuelRows: [],
   coupangEntries: [],
   ledgerEntries: [],
+  corporateCardEntries: [],
+  generalTravelEntries: [],
   storageSettings: {},
   effectiveStorageRoots: {},
   duplicateCandidates: [],
@@ -122,6 +146,24 @@ const elements = {
   addManualExpenseButton: document.querySelector("#addManualExpenseButton"),
   ledgerSummaryGrid: document.querySelector("#ledgerSummaryGrid"),
   ledgerEntryList: document.querySelector("#ledgerEntryList"),
+  corporateCardInput: document.querySelector("#corporateCardInput"),
+  parseCorporateCardButton: document.querySelector("#parseCorporateCardButton"),
+  refreshCorporateCardButton: document.querySelector("#refreshCorporateCardButton"),
+  corporateCardErrorList: document.querySelector("#corporateCardErrorList"),
+  corporateCardEntryList: document.querySelector("#corporateCardEntryList"),
+  corporateCardSummary: document.querySelector("#corporateCardSummary"),
+  refreshExcelPasteButton: document.querySelector("#refreshExcelPasteButton"),
+  generalTravelDateInput: document.querySelector("#generalTravelDateInput"),
+  generalTravelItemSelect: document.querySelector("#generalTravelItemSelect"),
+  generalTravelPlaceInput: document.querySelector("#generalTravelPlaceInput"),
+  generalTravelAmountInput: document.querySelector("#generalTravelAmountInput"),
+  generalTravelSummaryInput: document.querySelector("#generalTravelSummaryInput"),
+  generalTravelNoteInput: document.querySelector("#generalTravelNoteInput"),
+  addGeneralTravelButton: document.querySelector("#addGeneralTravelButton"),
+  generalTravelPasteOutput: document.querySelector("#generalTravelPasteOutput"),
+  fieldVisitPasteOutput: document.querySelector("#fieldVisitPasteOutput"),
+  corporateCardPasteOutput: document.querySelector("#corporateCardPasteOutput"),
+  excelPasteStatus: document.querySelector("#excelPasteStatus"),
   pptPreviewList: document.querySelector("#pptPreviewList"),
   storagePreviewList: document.querySelector("#storagePreviewList"),
   settingsStartInput: document.querySelector("#settingsStartInput"),
@@ -168,6 +210,14 @@ elements.refreshStorageButton.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
 elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
 elements.addManualExpenseButton?.addEventListener("click", addManualExpenseEntry);
+elements.parseCorporateCardButton?.addEventListener("click", parseAndSaveCorporateCardEntries);
+elements.refreshCorporateCardButton?.addEventListener("click", loadCorporateCardLedger);
+elements.corporateCardEntryList?.addEventListener("change", handleCorporateCardTableChange);
+elements.corporateCardEntryList?.addEventListener("focusout", handleCorporateCardMemoBlur);
+elements.corporateCardEntryList?.addEventListener("click", handleCorporateCardTableClick);
+elements.refreshExcelPasteButton?.addEventListener("click", renderExcelPasteOutputs);
+elements.addGeneralTravelButton?.addEventListener("click", addGeneralTravelEntry);
+document.addEventListener("click", handlePasteOutputCopyClick);
 elements.saveStorageSettingsButton?.addEventListener("click", saveStorageSettings);
 elements.addManualWaypointButton.addEventListener("click", addManualWaypointGroup);
 elements.loadSampleButton.addEventListener("click", loadSample);
@@ -206,8 +256,12 @@ renderCoupangLimitSummary();
 renderStorageSettings();
 renderLedger();
 renderPreview();
+initializeExcelExportInputs();
+loadManualExcelEntries();
+renderExcelPasteOutputs();
 loadStorageInfo();
 loadExpenseLedger();
+loadCorporateCardLedger();
 
 if (!("showDirectoryPicker" in window)) {
   elements.browserStatus.textContent = "서버 저장";
@@ -249,12 +303,24 @@ function renderStorageSettings() {
     return;
   }
   elements.storageSettingsGrid.innerHTML = "";
-  for (const [key, label] of Object.entries(STORAGE_SETTING_LABELS)) {
+  for (const group of STORAGE_SETTING_GROUPS) {
+    const configuredValues = group.keys
+      .map((key) => state.storageSettings[key])
+      .filter(Boolean);
+    const uniqueConfigured = [...new Set(configuredValues)];
+    const value = uniqueConfigured.length === 1 ? uniqueConfigured[0] : "";
+    const placeholderValues = group.keys
+      .map((key) => state.effectiveStorageRoots[key])
+      .filter(Boolean);
+    const uniquePlaceholders = [...new Set(placeholderValues)];
+    const placeholder = uniqueConfigured.length > 1
+      ? "여러 저장소가 섞여 있습니다. 저장하면 입력값으로 통일됩니다."
+      : uniquePlaceholders[0] || "기본 저장소";
     const row = document.createElement("label");
     row.className = "storage-setting-row";
     row.innerHTML = `
-      <span>${label}</span>
-      <input data-storage-key="${key}" type="text" value="${escapeAttribute(state.storageSettings[key] || "")}" placeholder="${escapeAttribute(state.effectiveStorageRoots[key] || "기본 저장소")}" />
+      <span>${group.label}</span>
+      <input data-storage-group="${group.key}" type="text" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(placeholder)}" />
     `;
     elements.storageSettingsGrid.append(row);
   }
@@ -262,10 +328,16 @@ function renderStorageSettings() {
 
 async function saveStorageSettings() {
   const storageSettings = {};
-  for (const input of elements.storageSettingsGrid.querySelectorAll("[data-storage-key]")) {
+  for (const input of elements.storageSettingsGrid.querySelectorAll("[data-storage-group]")) {
     const value = input.value.trim();
+    const group = STORAGE_SETTING_GROUPS.find((candidate) => candidate.key === input.dataset.storageGroup);
+    if (!group) {
+      continue;
+    }
     if (value) {
-      storageSettings[input.dataset.storageKey] = value;
+      for (const key of group.keys) {
+        storageSettings[key] = value;
+      }
     }
   }
   elements.storageSettingsStatus.innerHTML = "";
@@ -481,7 +553,7 @@ async function runCapture() {
   for (const group of state.groups) {
     try {
       const result = await captureGroup(group);
-      upsertFuelRow(result.fuelRow);
+      upsertFuelRows(result.fuelRows);
       renderFuelOutput();
       addSuccess(`${group.dateKey} 저장 완료: ${result.routeSavedPath}`);
       addSuccess(`${group.dateKey} 유가 저장 완료: ${result.oilSavedPath}`);
@@ -526,7 +598,7 @@ async function runCaptureGroups(groups, { retry = false } = {}) {
     try {
       const result = await captureGroup(group);
       state.failedJobs = removeFailedCapture(state.failedJobs, group);
-      upsertFuelRow(result.fuelRow);
+      upsertFuelRows(result.fuelRows);
       renderFuelOutput();
       addSuccess(`${group.dateKey} ${retry ? "재실행 " : ""}저장 완료: ${result.routeSavedPath}`);
       addSuccess(`${group.dateKey} ${retry ? "재실행 " : ""}유가 저장 완료: ${result.oilSavedPath}`);
@@ -580,7 +652,7 @@ async function captureGroup(group) {
     ? oilData.result.savedPath
     : await saveScreenshot(group.monthKey, "유가캡처", oilData.result.fileName.replace(/\.png$/i, ""), oilData.result.imageBase64);
 
-  const [fuelRow] = buildFuelExpensePasteRows([{
+  const fuelRows = buildFieldVisitExpensePasteRows([{
     group,
     distanceKm: routeData.result.distanceKm,
     fuelPriceWon: oilData.result.fuelPriceWon
@@ -589,7 +661,7 @@ async function captureGroup(group) {
   return {
     routeSavedPath,
     oilSavedPath,
-    fuelRow
+    fuelRows
   };
 }
 
@@ -1203,6 +1275,9 @@ async function renderProofImagePreview(targetElement, { emptyMessage, allowDelet
       targetElement.innerHTML = `<p class="folder-label">${emptyMessage}</p>`;
       return;
     }
+    if (allowDelete) {
+      targetElement.append(renderProofBulkDeleteToolbar());
+    }
     for (const group of groups) {
       targetElement.append(renderProofPreviewCard(group, { allowDelete }));
     }
@@ -1227,6 +1302,9 @@ async function renderServerProofImagePreview(targetElement, monthKey, emptyMessa
     if (!groups.length) {
       targetElement.innerHTML = `<p class="folder-label">${emptyMessage}</p>`;
     } else {
+      if (allowDelete) {
+        targetElement.append(renderProofBulkDeleteToolbar());
+      }
       for (const group of groups) {
         targetElement.append(renderProofPreviewCard(group, { allowDelete }));
       }
@@ -1238,6 +1316,16 @@ async function renderServerProofImagePreview(targetElement, monthKey, emptyMessa
   } catch (error) {
     targetElement.innerHTML = `<p class="folder-label error">미리보기 실패: ${escapeHtml(error.message)}</p>`;
   }
+}
+
+function renderProofBulkDeleteToolbar() {
+  const toolbar = document.createElement("div");
+  toolbar.className = "proof-preview-toolbar";
+  toolbar.innerHTML = `
+    <button class="secondary-button compact danger-button" type="button" data-proof-delete-selected>선택 파일 삭제</button>
+    <span class="folder-label">삭제할 이미지를 체크한 뒤 한 번에 정리할 수 있습니다.</span>
+  `;
+  return toolbar;
 }
 
 function renderUnmatchedProofCard(images) {
@@ -1275,6 +1363,12 @@ function renderProofPreviewCard(group, { allowDelete = false } = {}) {
     <div class="proof-thumb-grid">
       ${allImages.map((image) => `
         <figure>
+          ${allowDelete ? `
+            <label class="proof-select-row">
+              <input type="checkbox" data-proof-select="${escapeAttribute(image.name)}" />
+              <span>선택</span>
+            </label>
+          ` : ""}
           <img src="${image.dataUri}" alt="${escapeHtml(image.name)}" data-preview-image="${image.dataUri}" data-preview-caption="${escapeHtml(`${image.label} · ${image.name}`)}" />
           <figcaption>${escapeHtml(image.label)} · ${escapeHtml(image.name.split("/").at(-1) || image.name)}</figcaption>
           ${allowDelete ? `<button class="ghost-button compact danger proof-delete-button" type="button" data-proof-delete="${escapeAttribute(image.name)}">삭제</button>` : ""}
@@ -1286,6 +1380,31 @@ function renderProofPreviewCard(group, { allowDelete = false } = {}) {
 }
 
 async function handleProofPreviewActionClick(event) {
+  const selectedButton = event.target.closest("[data-proof-delete-selected]");
+  if (selectedButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const selectedNames = [...elements.pptPreviewList.querySelectorAll("[data-proof-select]:checked")]
+      .map((input) => input.dataset.proofSelect)
+      .filter(Boolean);
+    if (!selectedNames.length) {
+      elements.pptStatus.textContent = "삭제할 이미지를 먼저 선택해 주세요.";
+      return;
+    }
+    const confirmed = window.confirm(`선택한 파일 ${selectedNames.length}개를 삭제할까요?`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await deleteProofImages(selectedNames);
+      await previewProofPpt();
+      elements.pptStatus.textContent = `선택 파일 ${selectedNames.length}개 삭제 완료`;
+    } catch (error) {
+      addError(`PPT 미리보기 선택 삭제 실패: ${error.message}`);
+    }
+    return;
+  }
+
   const button = event.target.closest("[data-proof-delete]");
   if (!button) {
     return;
@@ -1298,16 +1417,50 @@ async function handleProofPreviewActionClick(event) {
     return;
   }
   try {
-    if (state.directoryHandle) {
-      await deleteBrowserProofImage(imageName);
-    } else {
-      await deleteServerProofImage(imageName);
-    }
+    await deleteProofImages([imageName]);
     await previewProofPpt();
     elements.pptStatus.textContent = `삭제 완료: ${imageName}`;
   } catch (error) {
     addError(`PPT 미리보기 파일 삭제 실패: ${error.message}`);
   }
+}
+
+async function deleteProofImages(imageNames) {
+  for (const imageName of imageNames) {
+    if (state.directoryHandle) {
+      await deleteBrowserProofImage(imageName);
+    } else {
+      await deleteServerProofImage(imageName);
+    }
+  }
+}
+
+async function deleteServerProofImage(imageName) {
+  const monthKey = resolveSelectedMonthKey();
+  const response = await fetch("/api/travel-proof/proof-image-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ monthKey, name: imageName })
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+}
+
+async function deleteBrowserProofImage(imageName) {
+  const monthKey = resolveSelectedMonthKey();
+  const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
+  const parts = String(imageName || "").split("/").filter(Boolean);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) {
+    throw new Error("삭제할 파일명이 올바르지 않습니다.");
+  }
+
+  let directory = monthDirectory;
+  for (const segment of parts.slice(0, -1)) {
+    directory = await directory.getDirectoryHandle(segment, { create: false });
+  }
+  await directory.removeEntry(parts.at(-1));
 }
 
 function handlePreviewImageClick(event) {
@@ -1523,9 +1676,459 @@ function upsertFuelRow(fuelRow) {
     .sort((left, right) => (left.dateKey.localeCompare(right.dateKey) || left.key.localeCompare(right.key)));
 }
 
+function upsertFuelRows(fuelRows) {
+  for (const fuelRow of fuelRows || []) {
+    upsertFuelRow(fuelRow);
+  }
+}
+
 function renderFuelOutput() {
   elements.fuelOutput.value = state.fuelRows.map((row) => row.text).join("\n");
   elements.copyFuelOutputButton.disabled = !elements.fuelOutput.value || state.running;
+  renderExcelPasteOutputs();
+}
+
+function initializeExcelExportInputs() {
+  fillSelect(elements.generalTravelItemSelect, GENERAL_TRAVEL_ITEMS);
+  if (elements.generalTravelDateInput) {
+    elements.generalTravelDateInput.value = todayInputValue(now);
+  }
+}
+
+function loadManualExcelEntries() {
+  state.generalTravelEntries = readLocalEntries(GENERAL_TRAVEL_STORAGE_KEY);
+}
+
+function addGeneralTravelEntry() {
+  const entry = normalizeManualExpenseEntry({
+    dateKey: elements.generalTravelDateInput.value,
+    item: elements.generalTravelItemSelect.value,
+    place: elements.generalTravelPlaceInput.value,
+    amountWon: elements.generalTravelAmountInput.value,
+    summary: elements.generalTravelSummaryInput.value,
+    note: elements.generalTravelNoteInput.value
+  }, "general");
+  if (!entry.dateKey || !entry.item || !entry.amountWon) {
+    renderExcelPasteStatus(["일반출장 사용일자, 항목, 금액을 확인해 주세요."], "error");
+    return;
+  }
+  state.generalTravelEntries = state.generalTravelEntries.concat(entry);
+  writeLocalEntries(GENERAL_TRAVEL_STORAGE_KEY, state.generalTravelEntries);
+  clearManualInputs([
+    elements.generalTravelPlaceInput,
+    elements.generalTravelAmountInput,
+    elements.generalTravelSummaryInput,
+    elements.generalTravelNoteInput
+  ]);
+  renderExcelPasteOutputs();
+}
+
+function renderExcelPasteOutputs() {
+  if (!elements.generalTravelPasteOutput) {
+    return;
+  }
+  const cardGeneralRows = buildCorporateCardGeneralTravelPasteRows(state.corporateCardEntries);
+  const cardFieldVisitRows = buildCorporateCardFieldVisitPasteRows(state.corporateCardEntries);
+  const generalRows = buildGeneralTravelPasteRows(state.generalTravelEntries).concat(cardGeneralRows);
+  const fieldVisitRows = state.fuelRows.concat(cardFieldVisitRows);
+  const corporateRows = buildCorporateCardPasteRows(state.corporateCardEntries);
+
+  elements.generalTravelPasteOutput.value = pasteText(generalRows);
+  elements.fieldVisitPasteOutput.value = pasteText(fieldVisitRows);
+  elements.corporateCardPasteOutput.value = pasteText(corporateRows);
+
+  const messages = [
+    `일반출장 ${generalRows.length}행`,
+    `현장매장방문출장 ${fieldVisitRows.length}행`,
+    `법인카드사용 ${corporateRows.length}행`
+  ];
+  const missingCardItemCount = state.corporateCardEntries
+    .filter((entry) => entry.targetSheet !== "excluded" && entry.status !== "excluded" && entry.category !== "excluded" && !entry.expenseItem)
+    .length;
+  if (missingCardItemCount) {
+    messages.push(`법인카드 ${missingCardItemCount}건은 엑셀 항목을 선택해야 출력됩니다.`);
+  }
+  renderExcelPasteStatus(messages, missingCardItemCount ? "error" : "success");
+}
+
+async function handlePasteOutputCopyClick(event) {
+  const button = event.target.closest("[data-copy-paste-target]");
+  if (!button) {
+    return;
+  }
+  const target = document.querySelector(`#${button.dataset.copyPasteTarget}`);
+  if (!target?.value) {
+    renderExcelPasteStatus(["복사할 붙여넣기 결과가 없습니다."], "error");
+    return;
+  }
+  await navigator.clipboard.writeText(target.value);
+  renderExcelPasteStatus(["붙여넣기 결과를 복사했습니다."], "success");
+}
+
+function renderExcelPasteStatus(messages, type = "") {
+  if (!elements.excelPasteStatus) {
+    return;
+  }
+  elements.excelPasteStatus.innerHTML = "";
+  for (const message of messages) {
+    const item = document.createElement("li");
+    item.className = type;
+    item.textContent = message;
+    elements.excelPasteStatus.append(item);
+  }
+}
+
+function fillSelect(select, options) {
+  if (!select) {
+    return;
+  }
+  select.innerHTML = options
+    .map((option) => `<option value="${escapeAttribute(option)}">${escapeHtml(option)}</option>`)
+    .join("");
+}
+
+function readLocalEntries(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalEntries(key, entries) {
+  localStorage.setItem(key, JSON.stringify(entries || []));
+}
+
+function clearManualInputs(inputs) {
+  for (const input of inputs) {
+    if (input) {
+      input.value = "";
+    }
+  }
+}
+
+async function parseAndSaveCorporateCardEntries() {
+  renderCorporateCardErrors([]);
+  const parsed = parseCorporateCardPaste(elements.corporateCardInput.value, {
+    year: Number(elements.yearInput.value) || now.getFullYear()
+  });
+  renderCorporateCardErrors(parsed.errors || []);
+  if (!parsed.entries.length) {
+    elements.browserStatus.textContent = "저장할 법인카드 내역이 없습니다.";
+    renderCorporateCardEntries();
+    return;
+  }
+
+  const entries = parsed.entries.map((entry) => normalizeCorporateCardEntry(entry));
+  try {
+    await upsertCorporateCardEntries(entries);
+    elements.browserStatus.textContent = `법인카드 내역 ${entries.length}건을 저장했습니다.`;
+  } catch (error) {
+    renderCorporateCardErrors([{ message: `법인카드 내역 저장 실패: ${error.message}` }]);
+  }
+}
+
+async function loadCorporateCardLedger() {
+  if (!elements.corporateCardEntryList) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/travel-proof/corporate-card-ledger");
+    const data = await readApiJson(response, "법인카드 저장 API를 찾지 못했습니다. 앱 서버를 재시작해 주세요.");
+    if (!data.ok) {
+      throw new Error(data.message);
+    }
+    state.corporateCardEntries = data.ledger?.entries || [];
+    renderCorporateCardEntries();
+    renderExcelPasteOutputs();
+  } catch (error) {
+    renderCorporateCardErrors([{ message: `법인카드 내역 불러오기 실패: ${error.message}` }]);
+  }
+}
+
+async function upsertCorporateCardEntries(entries) {
+  const response = await fetch("/api/travel-proof/corporate-card-ledger/upsert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries })
+  });
+  const data = await readApiJson(response, "법인카드 저장 API를 찾지 못했습니다. 앱 서버를 재시작해 주세요.");
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+  state.corporateCardEntries = data.ledger?.entries || [];
+  renderCorporateCardEntries();
+  renderExcelPasteOutputs();
+}
+
+async function deleteCorporateCardEntry(id) {
+  const response = await fetch("/api/travel-proof/corporate-card-ledger/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
+  });
+  const data = await readApiJson(response, "법인카드 삭제 API를 찾지 못했습니다. 앱 서버를 재시작해 주세요.");
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+  state.corporateCardEntries = data.ledger?.entries || [];
+  renderCorporateCardEntries();
+  renderExcelPasteOutputs();
+}
+
+function renderCorporateCardEntries() {
+  if (!elements.corporateCardEntryList) {
+    return;
+  }
+  elements.corporateCardEntryList.innerHTML = "";
+  const entries = [...state.corporateCardEntries].sort((left, right) =>
+    String(right.dateKey).localeCompare(String(left.dateKey)) ||
+    String(left.merchantName).localeCompare(String(right.merchantName))
+  );
+
+  if (elements.corporateCardSummary) {
+    const reviewCount = entries.filter((entry) => entry.status === "review").length;
+    elements.corporateCardSummary.textContent = `저장된 내역 ${entries.length}건 · 확인필요 ${reviewCount}건`;
+  }
+
+  if (!entries.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="11">저장된 법인카드 내역이 없습니다.</td>`;
+    elements.corporateCardEntryList.append(row);
+    return;
+  }
+
+  for (const entry of entries) {
+    const targetSheet = corporateCardTargetSheetValue(entry.targetSheet);
+    const expenseItem = corporateCardExpenseOptionsForTarget(targetSheet).includes(entry.expenseItem)
+      ? entry.expenseItem
+      : "";
+    const row = document.createElement("tr");
+    row.dataset.corporateCardId = entry.id;
+    row.innerHTML = `
+      <td>${escapeHtml(entry.dateKey)}</td>
+      <td>${escapeHtml(entry.merchantName)}</td>
+      <td>${escapeHtml(entry.industryName || "")}</td>
+      <td class="amount-cell">${formatWon(entry.amountWon)}원</td>
+      <td>
+        <select data-corporate-card-field="targetSheet">
+          ${corporateCardTargetSheetOptions(targetSheet)}
+        </select>
+      </td>
+      <td>
+        <select data-corporate-card-field="expenseItem">
+          <option value="">선택</option>
+          ${corporateCardExpenseItemOptions(expenseItem, targetSheet)}
+        </select>
+      </td>
+      <td>
+        <input class="memo-input" data-corporate-card-field="summary" type="text" value="${escapeAttribute(entry.summary || entry.memo || entry.industryName || "")}" placeholder="적요" />
+      </td>
+      <td>
+        <input class="memo-input" data-corporate-card-field="note" type="text" value="${escapeAttribute(entry.note || "")}" placeholder="비고" />
+      </td>
+      <td>
+        <input class="memo-input" data-corporate-card-field="memo" type="text" value="${escapeAttribute(entry.memo || "")}" placeholder="메모" />
+      </td>
+      <td class="status-cell ${corporateCardStatusClass(entry)}">${corporateCardStatusLabel(entry)}</td>
+      <td>
+        <button class="ghost-button compact danger" type="button" data-corporate-card-action="delete">삭제</button>
+      </td>
+    `;
+    elements.corporateCardEntryList.append(row);
+  }
+}
+
+async function readApiJson(response, notFoundMessage) {
+  const contentType = response.headers.get("Content-Type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+  const text = await response.text();
+  if (response.status === 404) {
+    throw new Error(notFoundMessage);
+  }
+  throw new Error(text || `서버 응답 형식이 올바르지 않습니다. HTTP ${response.status}`);
+}
+
+async function handleCorporateCardTableChange(event) {
+  const field = event.target.dataset.corporateCardField;
+  if (field !== "targetSheet" && field !== "expenseItem") {
+    return;
+  }
+  const row = event.target.closest("[data-corporate-card-id]");
+  if (field === "targetSheet") {
+    syncCorporateCardExpenseItemSelect(row);
+  }
+  const entry = corporateCardEntryFromRow(row);
+  if (!entry) {
+    return;
+  }
+  try {
+    await upsertCorporateCardEntries([entry]);
+    elements.browserStatus.textContent = "법인카드 분류를 저장했습니다.";
+  } catch (error) {
+    renderCorporateCardErrors([{ message: `분류 저장 실패: ${error.message}` }]);
+  }
+}
+
+async function handleCorporateCardMemoBlur(event) {
+  if (!["memo", "summary", "note"].includes(event.target.dataset.corporateCardField)) {
+    return;
+  }
+  const row = event.target.closest("[data-corporate-card-id]");
+  const entry = corporateCardEntryFromRow(row);
+  if (!entry) {
+    return;
+  }
+  const previous = state.corporateCardEntries.find((candidate) => candidate.id === entry.id);
+  if ((previous?.memo || "") === entry.memo &&
+      (previous?.summary || "") === entry.summary &&
+      (previous?.note || "") === entry.note) {
+    return;
+  }
+  try {
+    await upsertCorporateCardEntries([entry]);
+    elements.browserStatus.textContent = "법인카드 메모를 저장했습니다.";
+  } catch (error) {
+    renderCorporateCardErrors([{ message: `메모 저장 실패: ${error.message}` }]);
+  }
+}
+
+async function handleCorporateCardTableClick(event) {
+  const button = event.target.closest("[data-corporate-card-action]");
+  if (!button) {
+    return;
+  }
+  const row = button.closest("[data-corporate-card-id]");
+  const id = row?.dataset.corporateCardId;
+  if (!id) {
+    return;
+  }
+  try {
+    await deleteCorporateCardEntry(id);
+    elements.browserStatus.textContent = "법인카드 내역을 삭제했습니다.";
+  } catch (error) {
+    renderCorporateCardErrors([{ message: `삭제 실패: ${error.message}` }]);
+  }
+}
+
+function corporateCardEntryFromRow(row) {
+  if (!row) {
+    return null;
+  }
+  const entry = state.corporateCardEntries.find((candidate) => candidate.id === row.dataset.corporateCardId);
+  if (!entry) {
+    return null;
+  }
+  const targetSheet = corporateCardTargetSheetValue(row.querySelector('[data-corporate-card-field="targetSheet"]')?.value);
+  const selectedExpenseItem = row.querySelector('[data-corporate-card-field="expenseItem"]')?.value || "";
+  const expenseItem = corporateCardExpenseOptionsForTarget(targetSheet).includes(selectedExpenseItem)
+    ? selectedExpenseItem
+    : "";
+  const summary = row.querySelector('[data-corporate-card-field="summary"]')?.value || "";
+  const note = row.querySelector('[data-corporate-card-field="note"]')?.value || "";
+  const memo = row.querySelector('[data-corporate-card-field="memo"]')?.value || "";
+  return normalizeCorporateCardEntry({
+    ...entry,
+    targetSheet,
+    category: targetSheet === "excluded" ? "excluded" : "review",
+    expenseItem,
+    summary,
+    note,
+    memo,
+    status: corporateCardStatusForTarget(targetSheet, expenseItem)
+  });
+}
+
+function renderCorporateCardErrors(errors) {
+  if (!elements.corporateCardErrorList) {
+    return;
+  }
+  elements.corporateCardErrorList.innerHTML = "";
+  if (!errors.length) {
+    const item = document.createElement("li");
+    item.textContent = "오류가 없습니다.";
+    elements.corporateCardErrorList.append(item);
+    return;
+  }
+  for (const error of errors) {
+    const item = document.createElement("li");
+    item.className = "error";
+    item.textContent = error.message || String(error);
+    elements.corporateCardErrorList.append(item);
+  }
+}
+
+function corporateCardTargetSheetOptions(selected) {
+  const selectedValue = corporateCardTargetSheetValue(selected);
+  return Object.entries(CORPORATE_CARD_TARGET_SHEETS)
+    .map(([value, label]) => `<option value="${escapeAttribute(value)}"${value === selectedValue ? " selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+function corporateCardExpenseItemOptions(selected, targetSheet = "corporateCard") {
+  if (targetSheet === "excluded") {
+    return "";
+  }
+  return corporateCardExpenseOptionsForTarget(targetSheet)
+    .map((value) => `<option value="${escapeAttribute(value)}"${value === selected ? " selected" : ""}>${escapeHtml(value)}</option>`)
+    .join("");
+}
+
+function corporateCardExpenseOptionsForTarget(targetSheet = "corporateCard") {
+  const target = corporateCardTargetSheetValue(targetSheet);
+  if (target === "excluded") {
+    return [];
+  }
+  return target === "corporateCard" ? CORPORATE_CARD_EXPENSE_ITEMS : GENERAL_TRAVEL_ITEMS;
+}
+
+function syncCorporateCardExpenseItemSelect(row) {
+  const select = row?.querySelector('[data-corporate-card-field="expenseItem"]');
+  if (!select) {
+    return;
+  }
+  const targetSheet = corporateCardTargetSheetValue(row.querySelector('[data-corporate-card-field="targetSheet"]')?.value);
+  const currentValue = select.value;
+  const nextValue = corporateCardExpenseOptionsForTarget(targetSheet).includes(currentValue) ? currentValue : "";
+  select.innerHTML = `
+    <option value="">선택</option>
+    ${corporateCardExpenseItemOptions(nextValue, targetSheet)}
+  `;
+  select.value = nextValue;
+}
+
+function corporateCardTargetSheetValue(value) {
+  return CORPORATE_CARD_TARGET_SHEETS[value] ? value : "corporateCard";
+}
+
+function corporateCardStatusForTarget(targetSheet, expenseItem) {
+  if (targetSheet === "excluded") {
+    return "excluded";
+  }
+  return expenseItem ? "confirmed" : "review";
+}
+
+function corporateCardStatusLabel(entry) {
+  if (entry.status === "excluded") {
+    return "제외";
+  }
+  if (entry.status === "confirmed") {
+    return "분류완료";
+  }
+  return "확인필요";
+}
+
+function corporateCardStatusClass(entry) {
+  if (entry.status === "excluded") {
+    return "status-excluded";
+  }
+  if (entry.status === "confirmed") {
+    return "status-confirmed";
+  }
+  return "";
 }
 
 function renderLedger() {
@@ -1834,6 +2437,8 @@ function setBusy(isBusy, label = "") {
   elements.runCoupangButton.disabled = isBusy;
   if (elements.refreshLedgerButton) elements.refreshLedgerButton.disabled = isBusy;
   if (elements.addManualExpenseButton) elements.addManualExpenseButton.disabled = isBusy;
+  if (elements.parseCorporateCardButton) elements.parseCorporateCardButton.disabled = isBusy;
+  if (elements.refreshCorporateCardButton) elements.refreshCorporateCardButton.disabled = isBusy;
   if (elements.saveStorageSettingsButton) elements.saveStorageSettingsButton.disabled = isBusy;
   elements.manualDateSelect.disabled = isBusy;
   elements.manualWaypoint1Input.disabled = isBusy;
