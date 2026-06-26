@@ -1,8 +1,10 @@
 import {
   buildFieldVisitExpensePasteRows,
+  buildMonthlyProofGroups,
   canRetryFailedCapture,
   canRunCapture,
   createManualProofGroup,
+  parseTravelProofTable,
   rememberFailedCapture,
   removeFailedCapture
 } from "./travel-proof.js";
@@ -34,6 +36,7 @@ import {
   proofTypeFromFileName,
   selectedMonthKey
 } from "./proof-ppt.js";
+import { buildWeekdayCalendarMonth } from "./korean-business-calendar.js";
 
 const now = new Date();
 const PPT_IMAGE_DIRECT_SIZE_LIMIT = 1_200_000;
@@ -42,6 +45,41 @@ const PPT_IMAGE_JPEG_QUALITY = 0.88;
 const AUTO_PREVIEW_DELAY_MS = 450;
 const AUTO_PROOF_PREVIEW_DELAY_MS = 350;
 const GENERAL_TRAVEL_STORAGE_KEY = "travel-proof:general-travel-entries";
+const FAST_CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("captureMode") !== "legacy";
+const PROTOTYPE_PREVIEW = new URLSearchParams(window.location.search).get("prototype") === "1";
+const PAGE_META = Object.freeze({
+  distance: {
+    title: "거리 유류대 캡처",
+    icon: "ph-gas-pump",
+    description: "출장 경로와 날짜별 유가 증빙을 자동으로 준비합니다.",
+    help: "엑셀표를 붙여넣고 일정을 확인한 뒤 캡처 시작을 누르세요."
+  },
+  coupang: {
+    title: "조활비·소모품비 대시보드",
+    icon: "ph-receipt",
+    description: "쿠팡 증빙을 캡처하고 조활비·소모품비 사용 내역을 관리합니다.",
+    help: "인원과 캡처 날짜를 입력한 뒤 결과를 확인하고 필요한 내역을 확정하세요."
+  },
+  "excel-export": {
+    title: "엑셀 작성",
+    icon: "ph-file-xls",
+    description: "출장과 법인카드 내역을 회사 엑셀에 붙여넣을 형태로 정리합니다.",
+    help: "법인카드 표를 읽고 항목을 분류한 뒤 각 결과 카드에서 복사하세요."
+  },
+  ppt: {
+    title: "지출결의서 PPT",
+    icon: "ph-presentation-chart",
+    description: "날짜별 증빙을 확인하고 지출결의서 PPT를 생성합니다.",
+    help: "먼저 미리보기로 거리·유가와 추가증빙을 확인한 뒤 PPT를 생성하세요."
+  },
+  storage: {
+    title: "저장자료",
+    icon: "ph-folder-open",
+    description: "선택 월의 증빙을 확인하고 중복 파일과 저장 경로를 관리합니다.",
+    help: "자료를 미리본 뒤 필요한 경우에만 중복 정리나 폴더 관리를 실행하세요."
+  }
+});
+const oilCapturePromises = new Map();
 const STORAGE_CLEANUP_FOLDERS = [
   "거리캡처",
   "유가캡처",
@@ -82,8 +120,10 @@ const state = {
   generalTravelEntries: [],
   storageSettings: {},
   effectiveStorageRoots: {},
+  personalStorage: { configured: false, driveOnline: false, pendingFiles: 0 },
   duplicateCandidates: [],
   directoryHandle: null,
+  pendingBrowserDriveHandle: null,
   running: false,
   captureStats: {
     total: 0,
@@ -106,7 +146,6 @@ const elements = {
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   runButton: document.querySelector("#runButton"),
   retryFailedButton: document.querySelector("#retryFailedButton"),
-  copyFuelOutputButton: document.querySelector("#copyFuelOutputButton"),
   createPptButton: document.querySelector("#createPptButton"),
   previewPptButton: document.querySelector("#previewPptButton"),
   refreshStorageButton: document.querySelector("#refreshStorageButton"),
@@ -125,15 +164,23 @@ const elements = {
   successList: document.querySelector("#successList"),
   errorList: document.querySelector("#errorList"),
   progressBar: document.querySelector("#progressBar"),
-  fuelOutput: document.querySelector("#fuelOutput"),
+  pageTitle: document.querySelector("#pageTitle"),
+  captureResultPanel: document.querySelector("#captureResultPanel"),
+  captureResultFoldSummary: document.querySelector("#captureResultFoldSummary"),
   pptStatus: document.querySelector("#pptStatus"),
   coupangPeopleInput: document.querySelector("#coupangPeopleInput"),
   coupangDatesInput: document.querySelector("#coupangDatesInput"),
   coupangLimitSummary: document.querySelector("#coupangLimitSummary"),
   welfareLimitCard: document.querySelector("#welfareLimitCard"),
   welfareRemainingCard: document.querySelector("#welfareRemainingCard"),
+  welfareUsageText: document.querySelector("#welfareUsageText"),
+  welfareUsagePercent: document.querySelector("#welfareUsagePercent"),
+  welfareProgressBar: document.querySelector("#welfareProgressBar"),
   supplyLimitCard: document.querySelector("#supplyLimitCard"),
   supplyRemainingCard: document.querySelector("#supplyRemainingCard"),
+  supplyUsageText: document.querySelector("#supplyUsageText"),
+  supplyUsagePercent: document.querySelector("#supplyUsagePercent"),
+  supplyProgressBar: document.querySelector("#supplyProgressBar"),
   coupangResultList: document.querySelector("#coupangResultList"),
   coupangErrorList: document.querySelector("#coupangErrorList"),
   refreshLedgerButton: document.querySelector("#refreshLedgerButton"),
@@ -144,6 +191,8 @@ const elements = {
   manualExpenseMemoInput: document.querySelector("#manualExpenseMemoInput"),
   manualExpensePathInput: document.querySelector("#manualExpensePathInput"),
   addManualExpenseButton: document.querySelector("#addManualExpenseButton"),
+  toggleManualExpenseButton: document.querySelector("#toggleManualExpenseButton"),
+  manualExpenseCard: document.querySelector("#manualExpenseCard"),
   ledgerSummaryGrid: document.querySelector("#ledgerSummaryGrid"),
   ledgerEntryList: document.querySelector("#ledgerEntryList"),
   corporateCardInput: document.querySelector("#corporateCardInput"),
@@ -188,12 +237,31 @@ const elements = {
   browserStatus: document.querySelector("#browserStatus")
 };
 
+Object.assign(elements, {
+  onboardingOverlay: document.querySelector("#onboardingOverlay"),
+  personalDriveRootInput: document.querySelector("#personalDriveRootInput"),
+  updateRootInput: document.querySelector("#updateRootInput"),
+  updateRootField: document.querySelector("#updateRootField"),
+  browsePersonalDriveButton: document.querySelector("#browsePersonalDriveButton"),
+  browseUpdateRootButton: document.querySelector("#browseUpdateRootButton"),
+  savePersonalDriveButton: document.querySelector("#savePersonalDriveButton"),
+  cancelOnboardingButton: document.querySelector("#cancelOnboardingButton"),
+  onboardingStatus: document.querySelector("#onboardingStatus"),
+  prerequisiteGrid: document.querySelector("#prerequisiteGrid"),
+  storageHealthBanner: document.querySelector("#storageHealthBanner"),
+  storageHealthTitle: document.querySelector("#storageHealthTitle"),
+  storageHealthDetail: document.querySelector("#storageHealthDetail"),
+  syncPendingButton: document.querySelector("#syncPendingButton")
+});
+elements.appVersionLabel = document.querySelector("#appVersionLabel");
+elements.updateStatusLabel = document.querySelector("#updateStatusLabel");
+
 elements.yearInput.value = String(now.getFullYear());
 elements.monthInput.value = String(now.getMonth() + 1);
 elements.startInput.value = "태왕디아너스오페라";
 elements.destinationInput.value = "태왕디아너스오페라";
 elements.manualDateSelect.value = todayInputValue(now);
-elements.ledgerMonthInput.value = todayInputValue(now).slice(0, 7);
+if (elements.ledgerMonthInput) elements.ledgerMonthInput.value = todayInputValue(now).slice(0, 7);
 elements.manualExpenseDateInput.value = todayInputValue(now);
 elements.settingsStartInput.value = elements.startInput.value;
 elements.settingsDestinationInput.value = elements.destinationInput.value;
@@ -201,15 +269,35 @@ elements.settingsPeopleInput.value = elements.coupangPeopleInput.value;
 
 elements.previewButton.addEventListener("click", preview);
 elements.chooseFolderButton.addEventListener("click", chooseFolder);
+elements.browsePersonalDriveButton?.addEventListener("click", () => browseDesktopDirectory(elements.personalDriveRootInput, "본인 Google Drive 폴더 선택"));
+elements.browseUpdateRootButton?.addEventListener("click", () => browseDesktopDirectory(elements.updateRootInput, "앱 업데이트 공유 폴더 선택"));
+elements.savePersonalDriveButton?.addEventListener("click", savePersonalDrive);
+elements.cancelOnboardingButton?.addEventListener("click", () => {
+  if (state.personalStorage?.configured) elements.onboardingOverlay.hidden = true;
+});
+elements.syncPendingButton?.addEventListener("click", syncPendingStorage);
 elements.runButton.addEventListener("click", runCapture);
 elements.retryFailedButton.addEventListener("click", retryFailedCapture);
-elements.copyFuelOutputButton.addEventListener("click", copyFuelOutput);
+document.querySelector("#distanceHelpButton")?.addEventListener("click", (event) => {
+  const note = document.querySelector("#distanceHelpNote");
+  if (!note) return;
+  note.hidden = !note.hidden;
+  event.currentTarget.setAttribute("aria-expanded", String(!note.hidden));
+});
 elements.createPptButton.addEventListener("click", createProofPpt);
 elements.previewPptButton.addEventListener("click", previewProofPpt);
 elements.refreshStorageButton.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
 elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
 elements.addManualExpenseButton?.addEventListener("click", addManualExpenseEntry);
+elements.toggleManualExpenseButton?.addEventListener("click", () => {
+  if (!elements.manualExpenseCard) return;
+  elements.manualExpenseCard.open = !elements.manualExpenseCard.open;
+  elements.toggleManualExpenseButton.setAttribute("aria-expanded", String(elements.manualExpenseCard.open));
+});
+elements.manualExpenseCard?.addEventListener("toggle", () => {
+  elements.toggleManualExpenseButton?.setAttribute("aria-expanded", String(elements.manualExpenseCard.open));
+});
 elements.parseCorporateCardButton?.addEventListener("click", parseAndSaveCorporateCardEntries);
 elements.refreshCorporateCardButton?.addEventListener("click", loadCorporateCardLedger);
 elements.corporateCardEntryList?.addEventListener("change", handleCorporateCardTableChange);
@@ -250,7 +338,20 @@ elements.storagePreviewList.addEventListener("click", handlePreviewImageClick);
 elements.ledgerEntryList?.addEventListener("click", handleLedgerActionClick);
 elements.coupangResultList?.addEventListener("click", handleLedgerActionClick);
 for (const navItem of elements.navItems) {
-  navItem.addEventListener("click", () => activatePage(navItem.dataset.pageTarget));
+  navItem.addEventListener("click", () => {
+    activatePage(navItem.dataset.pageTarget);
+    navItem.closest("details")?.removeAttribute("open");
+  });
+}
+for (const summaryLink of document.querySelectorAll("[data-summary-target]")) {
+  summaryLink.addEventListener("click", () => {
+    if (summaryLink.dataset.summaryTarget === "capture-result") {
+      elements.captureResultPanel.open = true;
+      elements.captureResultPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    document.querySelector("#tripInputPanel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 renderCoupangLimitSummary();
 renderStorageSettings();
@@ -262,14 +363,172 @@ renderExcelPasteOutputs();
 loadStorageInfo();
 loadExpenseLedger();
 loadCorporateCardLedger();
+loadPersonalStorage();
+initializeDesktopBridge();
 
-if (!("showDirectoryPicker" in window)) {
+if (!("showDirectoryPicker" in window) && !window.desktopBridge) {
   elements.browserStatus.textContent = "서버 저장";
   elements.chooseFolderButton.disabled = true;
   elements.folderLabel.textContent = "기본 저장소를 확인하는 중입니다.";
 } else {
   elements.browserStatus.textContent = "준비됨";
   elements.folderLabel.textContent = "기본 저장소를 확인하는 중입니다. 필요할 때만 다른 폴더를 선택하세요.";
+}
+
+async function loadPersonalStorage() {
+  try {
+    const [storageResponse, prerequisiteResponse] = await Promise.all([
+      fetch("/api/travel-proof/personal-storage"),
+      fetch("/api/travel-proof/prerequisites")
+    ]);
+    const storageData = await storageResponse.json();
+    const prerequisiteData = await prerequisiteResponse.json();
+    if (!storageData.ok) throw new Error(storageData.message || "개인 저장소 정보를 읽을 수 없습니다.");
+
+    const settings = storageData.settings || {};
+    state.personalStorage = storageData.status || { configured: false, driveOnline: false, pendingFiles: 0 };
+    elements.personalDriveRootInput.value = settings.driveRoot || "";
+    elements.updateRootInput.value = settings.updateRoot || "";
+    renderPrerequisites(prerequisiteData.prerequisites || {});
+    renderPersonalStorageStatus();
+    const shouldRequireDesktopOnboarding = Boolean(window.desktopBridge) && !state.personalStorage.configured;
+    elements.onboardingOverlay.hidden = PROTOTYPE_PREVIEW || !shouldRequireDesktopOnboarding;
+    elements.cancelOnboardingButton.hidden = !state.personalStorage.configured;
+    updateRunButton();
+  } catch (error) {
+    elements.onboardingOverlay.hidden = PROTOTYPE_PREVIEW || !window.desktopBridge;
+    elements.onboardingStatus.textContent = `초기 설정 확인 실패: ${error.message}`;
+  }
+}
+
+async function initializeDesktopBridge() {
+  if (!window.desktopBridge) {
+    elements.updateRootField.hidden = true;
+    return;
+  }
+  const [appInfo, updateStatus] = await Promise.all([
+    window.desktopBridge.getAppInfo(),
+    window.desktopBridge.getUpdateStatus()
+  ]);
+  elements.appVersionLabel.textContent = `버전 ${appInfo.version} · 개인 저장 모드`;
+  renderDesktopUpdateStatus(updateStatus);
+  window.desktopBridge.onUpdateStatus(renderDesktopUpdateStatus);
+}
+
+function renderDesktopUpdateStatus(status = {}) {
+  if (!elements.updateStatusLabel) return;
+  elements.updateStatusLabel.textContent = status.message || "업데이트 확인 전";
+  elements.updateStatusLabel.title = status.message || "";
+}
+
+function renderPrerequisites(prerequisites) {
+  for (const key of ["windows", "chrome", "googleDrive"]) {
+    const element = elements.prerequisiteGrid?.querySelector(`[data-prerequisite="${key}"]`);
+    if (!element) continue;
+    element.textContent = prerequisites[key] ? "준비됨" : (key === "googleDrive" ? "폴더 선택 필요" : "설치 필요");
+    element.classList.toggle("status-confirmed", Boolean(prerequisites[key]));
+  }
+}
+
+async function browseDesktopDirectory(input, title) {
+  if (window.desktopBridge?.selectDirectory) {
+    const selected = await window.desktopBridge.selectDirectory({ title });
+    if (selected) input.value = selected;
+    return;
+  }
+  if (input === elements.personalDriveRootInput && "showDirectoryPicker" in window) {
+    try {
+      const selected = await window.showDirectoryPicker({ mode: "readwrite" });
+      const outputHandle = selected.name === "출장비증빙"
+        ? selected
+        : await selected.getDirectoryHandle("출장비증빙", { create: true });
+      state.pendingBrowserDriveHandle = outputHandle;
+      input.value = `${selected.name} / 출장비증빙`;
+      elements.onboardingStatus.textContent = "폴더를 선택했습니다. 브라우저 보안상 이 연결은 현재 실행 중에만 유지됩니다.";
+    } catch (error) {
+      if (error.name !== "AbortError") elements.onboardingStatus.textContent = `폴더 선택 실패: ${error.message}`;
+    }
+    return;
+  }
+  input.focus();
+  elements.onboardingStatus.textContent = "설치형 앱에서는 폴더 선택 창이 열립니다. 현재는 Drive 경로를 직접 입력해 주세요.";
+}
+
+async function savePersonalDrive() {
+  if (!window.desktopBridge && state.pendingBrowserDriveHandle) {
+    try {
+      const monthKey = resolveSelectedMonthKey();
+      const monthDirectory = await state.pendingBrowserDriveHandle.getDirectoryHandle(monthKey, { create: true });
+      await ensureBrowserProofFolders(monthDirectory);
+      state.directoryHandle = state.pendingBrowserDriveHandle;
+      state.personalStorage = { configured: true, driveOnline: true, pendingFiles: 0, browserSession: true };
+      elements.onboardingOverlay.hidden = true;
+      elements.cancelOnboardingButton.hidden = false;
+      elements.folderLabel.textContent = `브라우저 저장소: ${elements.personalDriveRootInput.value} · 현재 실행 중에만 연결됩니다.`;
+      elements.browserStatus.textContent = "Drive 직접 저장";
+      updateRunButton();
+      scheduleProofPreviews();
+    } catch (error) {
+      elements.onboardingStatus.textContent = `Drive 연결 실패: ${error.message}`;
+    }
+    return;
+  }
+  const driveRoot = elements.personalDriveRootInput.value.trim();
+  if (!driveRoot) {
+    elements.onboardingStatus.textContent = "본인 Google Drive 폴더를 선택해 주세요.";
+    return;
+  }
+  elements.savePersonalDriveButton.disabled = true;
+  elements.onboardingStatus.textContent = "폴더 쓰기 권한과 월별 저장 구조를 확인하는 중입니다.";
+  try {
+    const response = await fetch("/api/travel-proof/personal-storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        driveRoot,
+        updateRoot: elements.updateRootInput.value.trim(),
+        monthKey: resolveSelectedMonthKey()
+      })
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message);
+    state.personalStorage = data.status;
+    elements.onboardingOverlay.hidden = true;
+    if (data.warning) addError(data.warning);
+    await loadStorageInfo();
+    renderPersonalStorageStatus();
+    updateRunButton();
+  } catch (error) {
+    elements.onboardingStatus.textContent = `Drive 연결 실패: ${error.message}`;
+  } finally {
+    elements.savePersonalDriveButton.disabled = false;
+  }
+}
+
+async function syncPendingStorage() {
+  elements.syncPendingButton.disabled = true;
+  try {
+    const response = await fetch("/api/travel-proof/personal-storage/sync", { method: "POST" });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.message);
+    state.personalStorage = data.status;
+    renderPersonalStorageStatus();
+    elements.browserStatus.textContent = data.moved ? `대기자료 ${data.moved}개 동기화` : "동기화 완료";
+  } catch (error) {
+    elements.storageHealthDetail.textContent = `동기화 실패: ${error.message}`;
+  } finally {
+    elements.syncPendingButton.disabled = false;
+  }
+}
+
+function renderPersonalStorageStatus() {
+  const status = state.personalStorage || {};
+  const hasWarning = status.usingFallback || Number(status.pendingFiles) > 0;
+  elements.storageHealthBanner.hidden = !hasWarning;
+  if (!hasWarning) return;
+  elements.storageHealthTitle.textContent = status.usingFallback ? "Drive 연결이 끊겨 임시 보관 중" : "동기화 대기자료가 있습니다";
+  elements.storageHealthDetail.textContent = `${Number(status.pendingFiles) || 0}개 파일을 본인 Drive로 옮길 수 있습니다.`;
+  elements.syncPendingButton.disabled = status.usingFallback;
 }
 
 async function loadStorageInfo() {
@@ -387,15 +646,7 @@ async function preview({ silent = false } = {}) {
 
   try {
     const payload = getFormPayload();
-    const response = await fetch("/api/travel-proof/preview", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    if (!data.ok) {
-      throw new Error(data.message);
-    }
+    const data = await readPreviewPayload(payload);
 
     const manualGroups = state.groups.filter((group) => group.manual);
     state.groups = data.groups.concat(manualGroups);
@@ -415,6 +666,8 @@ async function preview({ silent = false } = {}) {
   } catch (error) {
     if (!silent) {
       addError(error.message);
+    } else {
+      elements.captureResultDetail.textContent = error.message;
     }
   } finally {
     if (!silent) {
@@ -487,6 +740,15 @@ function activatePage(pageName) {
   for (const panel of elements.pagePanels) {
     panel.classList.toggle("active", panel.dataset.pagePanel === pageName);
   }
+  const pageMeta = PAGE_META[pageName] || PAGE_META.distance;
+  if (elements.pageTitle) elements.pageTitle.textContent = pageMeta.title;
+  const pageIcon = document.querySelector("#pageIcon");
+  if (pageIcon) pageIcon.className = `ph ${pageMeta.icon}`;
+  const pageDescription = document.querySelector("#pageDescription");
+  if (pageDescription) pageDescription.textContent = pageMeta.description;
+  const helpNote = document.querySelector("#distanceHelpNote");
+  if (helpNote) helpNote.textContent = pageMeta.help;
+  document.body.dataset.activePage = pageName;
   if (pageName === "ppt" || pageName === "storage") {
     scheduleProofPreviews();
   }
@@ -519,18 +781,9 @@ function addManualWaypointGroup() {
 }
 
 async function chooseFolder() {
-  try {
-    state.directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-    elements.folderLabel.textContent = `선택 폴더: ${state.directoryHandle.name} · 이 폴더를 우선 사용합니다.`;
-    state.duplicateCandidates = [];
-    renderStorageCleanupStatus([]);
-    updateRunButton();
-    scheduleProofPreviews();
-  } catch (error) {
-    if (error.name !== "AbortError") {
-      addError(`저장 폴더 선택 실패: ${error.message}`);
-    }
-  }
+  elements.onboardingOverlay.hidden = false;
+  elements.cancelOnboardingButton.hidden = !state.personalStorage?.configured;
+  elements.onboardingStatus.textContent = "본인 Google Drive 폴더를 변경할 수 있습니다. 기존 증빙은 자동으로 삭제하거나 이동하지 않습니다.";
 }
 
 async function runCapture() {
@@ -541,6 +794,7 @@ async function runCapture() {
   state.running = true;
   state.failedJobs = [];
   state.fuelRows = [];
+  oilCapturePromises.clear();
   state.captureStats = emptyCaptureStats(state.groups.length);
   clearLists();
   renderFuelOutput();
@@ -562,6 +816,7 @@ async function runCapture() {
       state.failedJobs = rememberFailedCapture(state.failedJobs, group, error.message);
       addError(`${group.dateKey}: ${error.message}`);
       state.captureStats.failure += 1;
+      if (elements.captureResultPanel) elements.captureResultPanel.open = true;
     } finally {
       elements.progressBar.value += 1;
       renderCaptureResult();
@@ -607,6 +862,7 @@ async function runCaptureGroups(groups, { retry = false } = {}) {
       state.failedJobs = rememberFailedCapture(state.failedJobs, group, error.message);
       addError(`${group.dateKey}: ${error.message}`);
       state.captureStats.failure += 1;
+      if (elements.captureResultPanel) elements.captureResultPanel.open = true;
     } finally {
       elements.progressBar.value += 1;
       renderCaptureResult();
@@ -618,27 +874,64 @@ async function runCaptureGroups(groups, { retry = false } = {}) {
 async function captureGroup(group) {
   const job = createBrowserJob(group);
   const shouldUseServerSave = !state.directoryHandle;
+  const [routeResult, oilResult] = await Promise.all([
+    captureRouteProof(group, job, shouldUseServerSave),
+    FAST_CAPTURE_ENABLED
+      ? getCachedOilProof(group, shouldUseServerSave)
+      : captureOilProof(group, shouldUseServerSave)
+  ]);
+
+  const fuelRows = buildFieldVisitExpensePasteRows([{
+    group,
+    distanceKm: routeResult.distanceKm,
+    fuelPriceWon: oilResult.fuelPriceWon
+  }]);
+
+  return {
+    routeSavedPath: routeResult.savedPath,
+    oilSavedPath: oilResult.savedPath,
+    fuelRows
+  };
+}
+
+async function captureRouteProof(group, job, shouldUseServerSave) {
   const routeResponse = await fetch(shouldUseServerSave ? "/api/travel-proof/capture-save" : "/api/travel-proof/capture", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job })
+    body: JSON.stringify({ job, fastCapture: FAST_CAPTURE_ENABLED })
   });
   const routeData = await routeResponse.json();
   if (!routeData.ok) {
     throw new Error(routeData.message);
   }
 
-  const routeSavedPath = shouldUseServerSave
+  const savedPath = shouldUseServerSave
     ? routeData.result.savedPath
     : await saveScreenshot(group.monthKey, "거리캡처", group.fileBaseName, routeData.result.imageBase64);
   if (!routeData.result.distanceKm) {
     throw new Error(`${group.dateKey} 이동거리를 읽을 수 없습니다.`);
   }
 
+  return { savedPath, distanceKm: routeData.result.distanceKm };
+}
+
+function getCachedOilProof(group, shouldUseServerSave) {
+  const key = `${group.dateKey}:${shouldUseServerSave ? "server" : "folder"}`;
+  if (oilCapturePromises.has(key)) return oilCapturePromises.get(key);
+
+  const promise = captureOilProof(group, shouldUseServerSave).catch((error) => {
+    if (oilCapturePromises.get(key) === promise) oilCapturePromises.delete(key);
+    throw error;
+  });
+  oilCapturePromises.set(key, promise);
+  return promise;
+}
+
+async function captureOilProof(group, shouldUseServerSave) {
   const oilResponse = await fetch(shouldUseServerSave ? "/api/travel-proof/oil-capture-save" : "/api/travel-proof/oil-capture", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dateKey: group.dateKey })
+    body: JSON.stringify({ dateKey: group.dateKey, fastCapture: FAST_CAPTURE_ENABLED })
   });
   const oilData = await oilResponse.json();
   if (!oilData.ok) {
@@ -648,21 +941,10 @@ async function captureGroup(group) {
     throw new Error(`${group.dateKey} 휘발유 유가를 읽을 수 없습니다.`);
   }
 
-  const oilSavedPath = shouldUseServerSave
+  const savedPath = shouldUseServerSave
     ? oilData.result.savedPath
     : await saveScreenshot(group.monthKey, "유가캡처", oilData.result.fileName.replace(/\.png$/i, ""), oilData.result.imageBase64);
-
-  const fuelRows = buildFieldVisitExpensePasteRows([{
-    group,
-    distanceKm: routeData.result.distanceKm,
-    fuelPriceWon: oilData.result.fuelPriceWon
-  }]);
-
-  return {
-    routeSavedPath,
-    oilSavedPath,
-    fuelRows
-  };
+  return { savedPath, fuelPriceWon: oilData.result.fuelPriceWon };
 }
 
 async function runCoupangCapture() {
@@ -788,6 +1070,9 @@ function renderCaptureResult() {
   const percent = total ? Math.round((completed / total) * 100) : 0;
   elements.captureResultSummary.textContent = `${percent}%`;
   elements.captureResultDetail.textContent = `성공 ${state.captureStats.success}건 · 실패 ${state.captureStats.failure}건`;
+  if (elements.captureResultFoldSummary) {
+    elements.captureResultFoldSummary.textContent = `성공 ${state.captureStats.success}건 · 실패 ${state.captureStats.failure}건`;
+  }
 }
 
 function emptyCaptureStats(total = 0) {
@@ -802,15 +1087,6 @@ function renderRouteCalendar() {
   const calendar = document.createElement("div");
   calendar.className = "route-calendar";
 
-  const weekHeader = document.createElement("div");
-  weekHeader.className = "calendar-weekdays";
-  for (const dayName of ["일", "월", "화", "수", "목", "금", "토"]) {
-    const item = document.createElement("div");
-    item.textContent = dayName;
-    weekHeader.append(item);
-  }
-  calendar.append(weekHeader);
-
   const year = Number(elements.yearInput.value);
   const month = Number(elements.monthInput.value);
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
@@ -821,32 +1097,42 @@ function renderRouteCalendar() {
     return calendar;
   }
 
-  const groupsByDate = new Map();
-  for (const group of state.groups) {
-    if (!groupsByDate.has(group.dateKey)) {
-      groupsByDate.set(group.dateKey, []);
-    }
-    groupsByDate.get(group.dateKey).push(group);
+  const calendarMonth = buildWeekdayCalendarMonth(year, month, state.groups);
+  if (calendarMonth.weekendGroups.length) {
+    calendar.append(renderWeekendScheduleNotice(calendarMonth.weekendGroups));
   }
+
+  const weekHeader = document.createElement("div");
+  weekHeader.className = "calendar-weekdays";
+  for (const dayName of calendarMonth.weekdayNames) {
+    const item = document.createElement("div");
+    item.textContent = dayName;
+    weekHeader.append(item);
+  }
+  calendar.append(weekHeader);
 
   const days = document.createElement("div");
   days.className = "calendar-days";
-  const firstDate = new Date(year, month - 1, 1);
-  const lastDate = new Date(year, month, 0);
-  const leadingBlankCount = firstDate.getDay();
-
-  for (let index = 0; index < leadingBlankCount; index += 1) {
+  for (let index = 0; index < calendarMonth.leadingBlankCount; index += 1) {
     const blank = document.createElement("div");
     blank.className = "calendar-day is-empty";
     days.append(blank);
   }
 
-  for (let day = 1; day <= lastDate.getDate(); day += 1) {
-    const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  for (const day of calendarMonth.days) {
     const cell = document.createElement("article");
-    cell.className = "calendar-day";
-    cell.innerHTML = `<div class="calendar-date">${day}</div>`;
-    for (const group of groupsByDate.get(dateKey) || []) {
+    cell.className = `calendar-day${day.holidayName ? " is-holiday" : ""}${day.groups.length ? " has-schedule" : ""}`;
+    const dateHeader = document.createElement("div");
+    dateHeader.className = "calendar-date-row";
+    dateHeader.innerHTML = `<span class="calendar-date">${day.day}</span>`;
+    if (day.holidayName) {
+      const holiday = document.createElement("small");
+      holiday.className = "calendar-holiday";
+      holiday.textContent = day.holidayName;
+      dateHeader.append(holiday);
+    }
+    cell.append(dateHeader);
+    for (const group of day.groups) {
       cell.append(renderCalendarGroup(group));
     }
     days.append(cell);
@@ -854,6 +1140,20 @@ function renderRouteCalendar() {
 
   calendar.append(days);
   return calendar;
+}
+
+function renderWeekendScheduleNotice(groups) {
+  const notice = document.createElement("aside");
+  notice.className = "weekend-schedule-notice";
+  const dates = [...new Set(groups.map((group) => group.dateKey))].sort();
+  notice.innerHTML = `
+    <div>
+      <strong>주말 일정 ${groups.length}건</strong>
+      <span>${dates.map((dateKey) => escapeHtml(dateKey.slice(5).replace("-", "/"))).join(", ")}</span>
+    </div>
+    <small>달력에서는 숨기지만 캡처 대상에는 포함됩니다.</small>
+  `;
+  return notice;
 }
 
 function renderCalendarHeader() {
@@ -1020,6 +1320,10 @@ async function ensureBrowserProofFolders(monthDirectory) {
     monthDirectory.getDirectoryHandle("거리캡처", { create: true }),
     monthDirectory.getDirectoryHandle("유가캡처", { create: true }),
     monthDirectory.getDirectoryHandle("추가증빙", { create: true }),
+    monthDirectory.getDirectoryHandle(COUPANG_PROOF_FOLDERS.welfare, { create: true }),
+    monthDirectory.getDirectoryHandle(COUPANG_PROOF_FOLDERS.supply, { create: true }),
+    monthDirectory.getDirectoryHandle(COUPANG_PROOF_FOLDERS.review, { create: true }),
+    monthDirectory.getDirectoryHandle("엑셀자료", { create: true }),
     monthDirectory.getDirectoryHandle("PPT", { create: true })
   ]);
 }
@@ -1253,12 +1557,57 @@ function renderStorageCleanupStatus(messages, type = "") {
     item.textContent = message;
     elements.storageCleanupStatus.append(item);
   }
+  const messageText = messages.join(" ");
+  const summary = type === "error"
+    ? "확인 필요"
+    : /찾는 중|확인 중/.test(messageText)
+      ? "검사 중"
+      : /삭제 완료|정리 완료/.test(messageText)
+        ? "정리 완료"
+        : /없습니다|후보가 없습니다/.test(messageText)
+          ? "정상"
+          : messages.length
+            ? "확인 완료"
+            : "확인 전";
+  setWorkspaceMetric("storageCleanupState", summary);
+}
+
+async function readPreviewPayload(payload) {
+  try {
+    const response = await fetch("/api/travel-proof/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(data.message);
+    }
+    return data;
+  } catch (serverError) {
+    const rows = parseTravelProofTable(payload.tableText);
+    const groups = buildMonthlyProofGroups(rows, {
+      year: payload.year,
+      month: payload.month,
+      start: payload.start,
+      destination: payload.destination
+    });
+    return {
+      ok: true,
+      groups: groups.valid,
+      errors: groups.errors,
+      rowCount: rows.length,
+      previewSource: "browser",
+      serverMessage: serverError.message
+    };
+  }
 }
 
 async function renderProofImagePreview(targetElement, { emptyMessage, allowDelete = false }) {
   targetElement.innerHTML = "";
   const monthKey = resolveSelectedMonthKey();
   if (!monthKey) {
+    updateProofWorkspaceSummary(targetElement, []);
     targetElement.innerHTML = `<p class="folder-label">기준 연도와 월을 확인해 주세요.</p>`;
     return;
   }
@@ -1271,6 +1620,7 @@ async function renderProofImagePreview(targetElement, { emptyMessage, allowDelet
     const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
     const images = await collectBrowserProofImages(monthDirectory, monthKey);
     const groups = groupProofImagesByDate(images, monthKey);
+    updateProofWorkspaceSummary(targetElement, groups);
     if (!groups.length) {
       targetElement.innerHTML = `<p class="folder-label">${emptyMessage}</p>`;
       return;
@@ -1282,6 +1632,7 @@ async function renderProofImagePreview(targetElement, { emptyMessage, allowDelet
       targetElement.append(renderProofPreviewCard(group, { allowDelete }));
     }
   } catch (error) {
+    updateProofWorkspaceSummary(targetElement, [], { failed: true });
     targetElement.innerHTML = `<p class="folder-label error">미리보기 실패: ${escapeHtml(error.message)}</p>`;
   }
 }
@@ -1299,6 +1650,8 @@ async function renderServerProofImagePreview(targetElement, monthKey, emptyMessa
     }
 
     const groups = data.result.groups || [];
+    const unmatchedImages = data.result.unmatchedImages || [];
+    updateProofWorkspaceSummary(targetElement, groups, { unmatchedCount: unmatchedImages.length });
     if (!groups.length) {
       targetElement.innerHTML = `<p class="folder-label">${emptyMessage}</p>`;
     } else {
@@ -1310,12 +1663,36 @@ async function renderServerProofImagePreview(targetElement, monthKey, emptyMessa
       }
     }
 
-    if ((data.result.unmatchedImages || []).length) {
-      targetElement.append(renderUnmatchedProofCard(data.result.unmatchedImages));
+    if (unmatchedImages.length) {
+      targetElement.append(renderUnmatchedProofCard(unmatchedImages));
     }
   } catch (error) {
+    updateProofWorkspaceSummary(targetElement, [], { failed: true });
     targetElement.innerHTML = `<p class="folder-label error">미리보기 실패: ${escapeHtml(error.message)}</p>`;
   }
+}
+
+function updateProofWorkspaceSummary(targetElement, groups, { unmatchedCount = 0, failed = false } = {}) {
+  const imageCount = groups.reduce((total, group) => total + ["route", "oil", "extra", "welfare", "supply", "review"]
+    .reduce((count, key) => count + (group[key] || []).length, 0), 0) + unmatchedCount;
+
+  if (targetElement === elements.pptPreviewList) {
+    const missingCount = groups.reduce((count, group) =>
+      count + ((group.route || []).length ? 0 : 1) + ((group.oil || []).length ? 0 : 1), 0);
+    setWorkspaceMetric("pptProofDateCount", `${groups.length}일`);
+    setWorkspaceMetric("pptMissingCount", `${missingCount}건`);
+    setWorkspaceMetric("pptReadyState", failed ? "확인 실패" : (!groups.length ? "자료 없음" : (missingCount ? "보완 필요" : "생성 가능")));
+  }
+
+  if (targetElement === elements.storagePreviewList) {
+    setWorkspaceMetric("storageFileCount", `${imageCount}개`);
+    setWorkspaceMetric("storageDateCount", `${groups.length}일`);
+  }
+}
+
+function setWorkspaceMetric(id, value) {
+  const element = document.querySelector(`#${id}`);
+  if (element) element.textContent = value;
 }
 
 function renderProofBulkDeleteToolbar() {
@@ -1362,7 +1739,7 @@ function renderProofPreviewCard(group, { allowDelete = false } = {}) {
     </div>
     <div class="proof-thumb-grid">
       ${allImages.map((image) => `
-        <figure>
+        <figure class="proof-type-${escapeAttribute(image.type || "extra")}">
           ${allowDelete ? `
             <label class="proof-select-row">
               <input type="checkbox" data-proof-select="${escapeAttribute(image.name)}" />
@@ -1370,7 +1747,7 @@ function renderProofPreviewCard(group, { allowDelete = false } = {}) {
             </label>
           ` : ""}
           <img src="${image.dataUri}" alt="${escapeHtml(image.name)}" data-preview-image="${image.dataUri}" data-preview-caption="${escapeHtml(`${image.label} · ${image.name}`)}" />
-          <figcaption>${escapeHtml(image.label)} · ${escapeHtml(image.name.split("/").at(-1) || image.name)}</figcaption>
+          <figcaption><span class="proof-type-chip">${escapeHtml(image.label)}</span><span class="proof-file-name">${escapeHtml(image.name.split("/").at(-1) || image.name)}</span></figcaption>
           ${allowDelete ? `<button class="ghost-button compact danger proof-delete-button" type="button" data-proof-delete="${escapeAttribute(image.name)}">삭제</button>` : ""}
         </figure>
       `).join("")}
@@ -1652,7 +2029,7 @@ function base64ToBlob(base64, mimeType) {
 }
 
 function updateRunButton() {
-  elements.runButton.disabled = !canRunCapture({ groupCount: state.groups.length, running: state.running });
+  elements.runButton.disabled = !canSave() || !canRunCapture({ groupCount: state.groups.length, running: state.running });
   updateRetryButton();
 }
 
@@ -1683,8 +2060,6 @@ function upsertFuelRows(fuelRows) {
 }
 
 function renderFuelOutput() {
-  elements.fuelOutput.value = state.fuelRows.map((row) => row.text).join("\n");
-  elements.copyFuelOutputButton.disabled = !elements.fuelOutput.value || state.running;
   renderExcelPasteOutputs();
 }
 
@@ -1736,6 +2111,7 @@ function renderExcelPasteOutputs() {
   elements.generalTravelPasteOutput.value = pasteText(generalRows);
   elements.fieldVisitPasteOutput.value = pasteText(fieldVisitRows);
   elements.corporateCardPasteOutput.value = pasteText(corporateRows);
+  setWorkspaceMetric("excelOutputCount", `${generalRows.length + fieldVisitRows.length + corporateRows.length}행`);
 
   const messages = [
     `일반출장 ${generalRows.length}행`,
@@ -1886,9 +2262,14 @@ function renderCorporateCardEntries() {
     String(right.dateKey).localeCompare(String(left.dateKey)) ||
     String(left.merchantName).localeCompare(String(right.merchantName))
   );
+  const reviewCount = entries.filter((entry) =>
+    entry.status === "review" ||
+    (entry.targetSheet !== "excluded" && entry.status !== "excluded" && entry.category !== "excluded" && !entry.expenseItem)
+  ).length;
+  setWorkspaceMetric("excelCardCount", `${entries.length}건`);
+  setWorkspaceMetric("excelReviewCount", `${reviewCount}건`);
 
   if (elements.corporateCardSummary) {
-    const reviewCount = entries.filter((entry) => entry.status === "review").length;
     elements.corporateCardSummary.textContent = `저장된 내역 ${entries.length}건 · 확인필요 ${reviewCount}건`;
   }
 
@@ -2132,10 +2513,10 @@ function corporateCardStatusClass(entry) {
 }
 
 function renderLedger() {
-  if (!elements.ledgerSummaryGrid || !elements.ledgerEntryList) {
+  if (!elements.ledgerEntryList) {
     return;
   }
-  const monthKey = elements.ledgerMonthInput.value || resolveSelectedMonthKey() || todayInputValue(now).slice(0, 7);
+  const monthKey = elements.ledgerMonthInput?.value || resolveSelectedMonthKey() || todayInputValue(now).slice(0, 7);
   const quarter = quarterRangeForMonth(monthKey);
   const confirmed = state.ledgerEntries.filter((entry) => entry.status === "confirmed");
   const monthEntries = state.ledgerEntries.filter((entry) => entry.dateKey?.startsWith(`${monthKey}-`));
@@ -2146,41 +2527,50 @@ function renderLedger() {
   const welfareLimit = (Number(elements.coupangPeopleInput.value) || 3) * 50000 * quarter.monthCount;
   const reviewCount = state.ledgerEntries.filter((entry) => entry.status === "review").length;
 
-  elements.ledgerSummaryGrid.innerHTML = "";
-  for (const card of [
-    ["조회 월 소모품비", `${formatWon(supplyUsed)} / ${formatWon(supplyLimit)}원`, `${monthKey} 기준`],
-    ["조회 분기 조활비", `${formatWon(welfareUsed)} / ${formatWon(welfareLimit)}원`, `${quarter.label} 기준`],
-    ["소모품비 잔액", `${formatWon(supplyLimit - supplyUsed)}원`, "월별 초기화"],
-    ["조활비 잔액", `${formatWon(welfareLimit - welfareUsed)}원`, `${quarter.monthCount}개월 합산`],
-    ["확인필요", `${reviewCount}건`, "확정 전까지 미차감"]
-  ]) {
-    const item = document.createElement("article");
-    item.className = "ledger-summary-card";
-    item.innerHTML = `<span>${card[0]}</span><strong>${card[1]}</strong><span>${card[2]}</span>`;
-    elements.ledgerSummaryGrid.append(item);
+  if (elements.ledgerSummaryGrid) {
+    elements.ledgerSummaryGrid.innerHTML = "";
+    for (const card of [
+      ["조회 월 소모품비", `${formatWon(supplyUsed)} / ${formatWon(supplyLimit)}원`, `${monthKey} 기준`, "supply"],
+      ["조회 분기 조활비", `${formatWon(welfareUsed)} / ${formatWon(welfareLimit)}원`, `${quarter.label} 기준`, "welfare"],
+      ["소모품비 잔액", `${formatWon(supplyLimit - supplyUsed)}원`, "월별 초기화", "supply"],
+      ["조활비 잔액", `${formatWon(welfareLimit - welfareUsed)}원`, `${quarter.monthCount}개월 합산`, "welfare"],
+      ["확인필요", `${reviewCount}건`, "확정 전까지 미차감", "review"]
+    ]) {
+      const item = document.createElement("article");
+      item.className = `ledger-summary-card summary-${card[3]}`;
+      item.innerHTML = `<span>${card[0]}</span><strong>${card[1]}</strong><span>${card[2]}</span>`;
+      elements.ledgerSummaryGrid.append(item);
+    }
   }
 
   const visibleEntries = [...new Map([...monthEntries, ...quarterEntries].map((entry) => [entry.id, entry])).values()]
     .sort((left, right) => String(right.dateKey).localeCompare(String(left.dateKey)));
   elements.ledgerEntryList.innerHTML = "";
   if (!visibleEntries.length) {
-    const empty = document.createElement("li");
-    empty.textContent = "조회 기간에 등록된 이력이 없습니다.";
+    const empty = document.createElement("tr");
+    empty.className = "ledger-empty-row";
+    empty.innerHTML = `<td colspan="6">아직 등록된 사용 이력이 없습니다.</td>`;
     elements.ledgerEntryList.append(empty);
     return;
   }
   for (const entry of visibleEntries) {
-    const item = document.createElement("li");
+    const item = document.createElement("tr");
     item.className = entry.status;
     const itemText = (entry.items || []).join(", ") || entry.memo || "품목 없음";
+    const evidenceText = entry.savedPath || (entry.source === "manual" ? "수기 입력" : "이미지 파일");
     item.innerHTML = `
-      <strong>${entry.dateKey} · ${categoryLabel(entry.type)} · ${formatWon(entry.amountWon)}원 · ${entry.source === "manual" ? "수기" : "쿠팡"}</strong>
-      <span>${escapeHtml(itemText)}${entry.savedPath ? ` · ${escapeHtml(entry.savedPath)}` : ""}</span>
-      ${entry.status === "review" ? `
-        <button class="ghost-button compact" type="button" data-ledger-action="confirm-welfare" data-ledger-id="${escapeAttribute(entry.id)}">조활비 확정</button>
-        <button class="ghost-button compact" type="button" data-ledger-action="confirm-supply" data-ledger-id="${escapeAttribute(entry.id)}">소모품비 확정</button>
-      ` : ""}
-      <button class="ghost-button compact" type="button" data-ledger-action="delete" data-ledger-id="${escapeAttribute(entry.id)}">삭제</button>
+      <td>${escapeHtml(entry.dateKey || "-")}</td>
+      <td><span class="ledger-type-chip type-${escapeAttribute(entry.type || "review")}">${escapeHtml(categoryLabel(entry.type))}</span></td>
+      <td class="amount-cell">${formatWon(entry.amountWon)}원</td>
+      <td class="truncate-cell" title="${escapeAttribute(itemText)}">${escapeHtml(itemText)}</td>
+      <td class="truncate-cell" title="${escapeAttribute(evidenceText)}">${escapeHtml(evidenceText)}</td>
+      <td class="ledger-actions-cell">
+        ${entry.status === "review" ? `
+          <button class="text-action" type="button" data-ledger-action="confirm-welfare" data-ledger-id="${escapeAttribute(entry.id)}">조활비</button>
+          <button class="text-action" type="button" data-ledger-action="confirm-supply" data-ledger-id="${escapeAttribute(entry.id)}">소모품비</button>
+        ` : ""}
+        <button class="text-action danger" type="button" data-ledger-action="delete" data-ledger-id="${escapeAttribute(entry.id)}">삭제</button>
+      </td>
     `;
     elements.ledgerEntryList.append(item);
   }
@@ -2349,14 +2739,6 @@ async function deleteLedgerEntry(id) {
   renderCoupangLimitSummary();
 }
 
-async function copyFuelOutput() {
-  if (!elements.fuelOutput.value) {
-    return;
-  }
-  await navigator.clipboard.writeText(elements.fuelOutput.value);
-  elements.browserStatus.textContent = "유류대 결과를 복사했습니다.";
-}
-
 function renderCoupangLimitSummary() {
   const monthKey = elements.ledgerMonthInput?.value || resolveSelectedMonthKey() || todayInputValue(now).slice(0, 7);
   const quarter = quarterRangeForMonth(monthKey);
@@ -2369,10 +2751,20 @@ function renderCoupangLimitSummary() {
   ));
   const welfareLimit = (Number(elements.coupangPeopleInput.value) || 3) * 50000 * quarter.monthCount;
   const supplyLimit = Number(elements.settingsSupplyLimitInput.value) || 50000;
+  const welfareRemaining = welfareLimit - welfareUsed;
+  const supplyRemaining = supplyLimit - supplyUsed;
+  const welfarePercent = usagePercent(welfareUsed, welfareLimit);
+  const supplyPercent = usagePercent(supplyUsed, supplyLimit);
   elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
-  elements.welfareRemainingCard.textContent = `${formatWon(welfareLimit - welfareUsed)}원`;
+  elements.welfareRemainingCard.textContent = `${formatWon(welfareRemaining)}원`;
+  if (elements.welfareUsageText) elements.welfareUsageText.textContent = `사용 ${formatWon(welfareUsed)}원 / 한도 ${formatWon(welfareLimit)}원`;
+  if (elements.welfareUsagePercent) elements.welfareUsagePercent.textContent = `${welfarePercent}%`;
+  if (elements.welfareProgressBar) elements.welfareProgressBar.style.width = `${welfarePercent}%`;
   elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
-  elements.supplyRemainingCard.textContent = `${formatWon(supplyLimit - supplyUsed)}원`;
+  elements.supplyRemainingCard.textContent = `${formatWon(supplyRemaining)}원`;
+  if (elements.supplyUsageText) elements.supplyUsageText.textContent = `사용 ${formatWon(supplyUsed)}원 / 한도 ${formatWon(supplyLimit)}원`;
+  if (elements.supplyUsagePercent) elements.supplyUsagePercent.textContent = `${supplyPercent}%`;
+  if (elements.supplyProgressBar) elements.supplyProgressBar.style.width = `${supplyPercent}%`;
   if (elements.coupangLimitSummary) {
     elements.coupangLimitSummary.innerHTML = `
       <span>조활비: ${quarter.label} ${quarter.monthCount}개월 총 ${formatWon(welfareLimit)}원 중 ${formatWon(welfareLimit - welfareUsed)}원 남음</span>
@@ -2426,7 +2818,7 @@ function addError(message) {
 
 function setBusy(isBusy, label = "") {
   elements.previewButton.disabled = isBusy;
-  elements.chooseFolderButton.disabled = isBusy || !("showDirectoryPicker" in window);
+  elements.chooseFolderButton.disabled = isBusy || (!("showDirectoryPicker" in window) && !window.desktopBridge);
   elements.runButton.disabled = isBusy || !canRunCapture({ groupCount: state.groups.length, running: state.running });
   elements.createPptButton.disabled = isBusy;
   elements.previewPptButton.disabled = isBusy;
@@ -2445,7 +2837,6 @@ function setBusy(isBusy, label = "") {
   elements.manualWaypoint2Input.disabled = isBusy;
   elements.addManualWaypointButton.disabled = isBusy;
   updateRetryButton();
-  elements.copyFuelOutputButton.disabled = isBusy || !elements.fuelOutput.value;
   if (label) {
     elements.browserStatus.textContent = label;
   } else {
@@ -2455,6 +2846,11 @@ function setBusy(isBusy, label = "") {
 
 function canSave() {
   return true;
+}
+
+function usagePercent(used, limit) {
+  const value = Number(limit) > 0 ? Math.round((Number(used) / Number(limit)) * 100) : 0;
+  return Math.max(0, Math.min(100, value));
 }
 
 function loadSample() {

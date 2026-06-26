@@ -9,12 +9,25 @@ import {
   receiptFileBaseName
 } from "./coupang-proof.js";
 import { extractRouteDistanceKm, parseFuelPriceWon } from "./travel-proof.js";
+import {
+  compareOilTargetToPage,
+  estimateOilTargetPage,
+  normalizeOilDateText
+} from "./oil-price-search.js";
 
 const DEBUG_PORT = 9222;
 const COUPANG_ORDER_LIST_URL = "https://mc.coupang.com/ssr/desktop/order/list";
 const COUPANG_LOGIN_WAIT_MS = 5 * 60 * 1000;
 const COUPANG_ORDER_SEARCH_PAGES = 12;
 const COUPANG_ORDER_SEARCH_SCROLLS = 14;
+const DEFAULT_FAST_CAPTURE_ENABLED = process.env.TRAVEL_PROOF_FAST_CAPTURE !== "0";
+const OIL_QUOTE_URL = "https://finance.naver.com/marketindex/oilDailyQuote.naver?marketindexCd=OIL_GSL";
+const sharedAutomationStateKey = Symbol.for("travel-proof.fast-capture-state");
+const sharedAutomationState = globalThis[sharedAutomationStateKey] ||= {
+  reusableTabIds: new Map(),
+  oilCaptureCache: new Map()
+};
+const { reusableTabIds, oilCaptureCache } = sharedAutomationState;
 const CHROME_PATHS = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
@@ -22,8 +35,9 @@ const CHROME_PATHS = [
 ];
 
 export async function captureNaverRoute(job, options = {}) {
+  const fastCapture = isFastCaptureEnabled(options);
   const endpoint = await ensureChrome(options);
-  const tab = await createTab(endpoint);
+  const tab = await acquireAutomationTab(endpoint, "route", fastCapture);
   const client = await CdpClient.connect(tab.webSocketDebuggerUrl, tab.id);
 
   try {
@@ -54,7 +68,7 @@ export async function captureNaverRoute(job, options = {}) {
     await waitFor(client, "document.body.innerText.includes('실시간 추천')", 30000);
     await delay(1200);
 
-    const text = await evaluate(client, "document.body.innerText", true);
+    const routeSummaryText = await getPrimaryRouteSummaryText(client);
     const clip = await getProofPanelClip(client);
     const screenshot = await client.call("Page.captureScreenshot", {
       format: "png",
@@ -66,57 +80,176 @@ export async function captureNaverRoute(job, options = {}) {
       dateKey: job.dateKey,
       fileName: job.outputFileName,
       imageBase64: screenshot.result.data,
-      distanceKm: extractRouteDistanceKm(text.result.result.value),
-      summaryText: String(text.result.result.value || "").slice(0, 2000)
+      distanceKm: extractRouteDistanceKm(routeSummaryText),
+      summaryText: routeSummaryText.slice(0, 2000)
     };
   } finally {
     await client.close();
-    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.id}`).catch(() => {});
+    await releaseAutomationTab(tab, "route", fastCapture);
   }
 }
 
 export async function captureOilPriceProof(dateKey, options = {}) {
+  const fastCapture = isFastCaptureEnabled(options);
+  const cacheKey = normalizeOilDateText(dateKey);
+  if (fastCapture && cacheKey && oilCaptureCache.has(cacheKey)) {
+    return oilCaptureCache.get(cacheKey);
+  }
+
+  const capturePromise = captureOilPriceProofFresh(dateKey, options);
+  if (fastCapture && cacheKey) oilCaptureCache.set(cacheKey, capturePromise);
+  try {
+    return await capturePromise;
+  } catch (error) {
+    if (cacheKey && oilCaptureCache.get(cacheKey) === capturePromise) oilCaptureCache.delete(cacheKey);
+    throw error;
+  }
+}
+
+async function captureOilPriceProofFresh(dateKey, options = {}) {
+  const fastCapture = isFastCaptureEnabled(options);
   const endpoint = await ensureChrome(options);
-  const tab = await createTab(endpoint);
+  const tab = await acquireAutomationTab(endpoint, "oil", fastCapture);
   const client = await CdpClient.connect(tab.webSocketDebuggerUrl, tab.id);
-  const targetDate = String(dateKey || "").replaceAll("-", ".");
+  const targetDate = normalizeOilDateText(dateKey);
+
+  if (!targetDate) {
+    throw new Error(`유류대 날짜 형식이 올바르지 않습니다: ${dateKey}`);
+  }
 
   try {
     await client.call("Page.enable");
     await client.call("Runtime.enable");
 
-    for (let page = 1; page <= 80; page += 1) {
-      await navigate(client, `https://finance.naver.com/marketindex/oilDailyQuote.naver?marketindexCd=OIL_GSL&page=${page}`);
-      await waitFor(client, "document.querySelector('.tbl_exchange.today tbody tr')", 15000);
+    if (fastCapture) {
+      const prefetched = await findOilPricePageFromHtml(targetDate).catch(() => null);
+      if (prefetched) {
+        const pageData = await loadOilPricePage(client, prefetched.page, targetDate);
+        if (pageData.highlighted) {
+          return await captureHighlightedOilPrice(client, dateKey, prefetched.page, pageData.highlighted, true);
+        }
+      }
+    }
 
-      const highlighted = await highlightOilPriceRow(client, targetDate);
+    const firstPage = await loadOilPricePage(client, 1, targetDate);
+    let page = estimateOilTargetPage(targetDate, firstPage.dateTexts, 80);
+    const visitedPages = new Set();
+
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const pageData = page === 1 ? firstPage : await loadOilPricePage(client, page, targetDate);
+      const highlighted = pageData.highlighted;
       if (!highlighted) {
+        const direction = compareOilTargetToPage(targetDate, pageData.dateTexts);
+        if (direction === "missing") {
+          throw new Error(`해당 날짜는 유가 고시 목록에 없습니다: ${dateKey}`);
+        }
+        if (direction === "previous") {
+          page = Math.max(1, page - 1);
+        } else if (direction === "next") {
+          page = Math.min(80, page + 1);
+        } else {
+          throw new Error(`유가 페이지의 날짜를 확인할 수 없습니다: ${dateKey}`);
+        }
+
+        if (visitedPages.has(page)) break;
+        visitedPages.add(page);
         continue;
       }
 
-      await delay(400);
-      const clip = await getOilProofClip(client);
-      const screenshot = await client.call("Page.captureScreenshot", {
-        format: "png",
-        fromSurface: true,
-        clip
-      });
-
-      return {
-        dateKey,
-        fileName: `oil-${dateKey}.png`,
-        imageBase64: screenshot.result.data,
-        fuelPriceText: highlighted.priceText,
-        fuelPriceWon: parseFuelPriceWon(highlighted.priceText),
-        page
-      };
+      return await captureHighlightedOilPrice(client, dateKey, page, highlighted, false);
     }
 
     throw new Error(`해당 날짜의 휘발유 유가를 찾을 수 없습니다: ${dateKey}`);
   } finally {
     await client.close();
-    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.id}`).catch(() => {});
+    await releaseAutomationTab(tab, "oil", fastCapture);
   }
+}
+
+async function captureHighlightedOilPrice(client, dateKey, page, highlighted, prefetched) {
+  await delay(150);
+  const clip = await getOilProofClip(client);
+  const screenshot = await client.call("Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    clip
+  });
+  return {
+    dateKey,
+    fileName: `oil-${dateKey}.png`,
+    imageBase64: screenshot.result.data,
+    fuelPriceText: highlighted.priceText,
+    fuelPriceWon: parseFuelPriceWon(highlighted.priceText),
+    page,
+    prefetched
+  };
+}
+
+async function loadOilPricePage(client, page, targetDate) {
+  await navigate(client, `${OIL_QUOTE_URL}&page=${page}`);
+  await waitFor(client, "document.querySelector('.tbl_exchange.today tbody tr')", 15000);
+  const dateTexts = await readOilPricePageDates(client, targetDate.slice(0, 4));
+  const highlighted = await highlightOilPriceRow(client, targetDate);
+  return { dateTexts, highlighted };
+}
+
+async function findOilPricePageFromHtml(targetDate) {
+  const firstPage = await fetchOilPricePageHtml(1);
+  let page = estimateOilTargetPage(targetDate, firstPage.map((row) => row.dateKey), 80);
+  const visited = new Set();
+
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const rows = page === 1 ? firstPage : await fetchOilPricePageHtml(page);
+    const match = rows.find((row) => row.dateKey === targetDate);
+    if (match) return { page, ...match };
+
+    const direction = compareOilTargetToPage(targetDate, rows.map((row) => row.dateKey));
+    if (direction === "previous") page = Math.max(1, page - 1);
+    else if (direction === "next") page = Math.min(80, page + 1);
+    else return null;
+
+    if (visited.has(page)) return null;
+    visited.add(page);
+  }
+  return null;
+}
+
+async function fetchOilPricePageHtml(page) {
+  const response = await fetch(`${OIL_QUOTE_URL}&page=${page}`, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml"
+    }
+  });
+  if (!response.ok) throw new Error(`유가 목록 조회 실패 (${response.status})`);
+
+  const bytes = await response.arrayBuffer();
+  const charset = /euc-?kr/i.test(response.headers.get("content-type") || "") ? "euc-kr" : "utf-8";
+  const html = new TextDecoder(charset).decode(bytes);
+  const rows = parseOilPriceRowsFromHtml(html);
+  if (!rows.length) throw new Error("유가 목록 HTML에서 날짜를 읽을 수 없습니다.");
+  return rows;
+}
+
+function parseOilPriceRowsFromHtml(html) {
+  const rows = [];
+  for (const rowMatch of String(html || "").matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...rowMatch[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)]
+      .map((match) => String(match[1] || "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;|&#160;/gi, " ")
+        .replace(/&#44;/g, ",")
+        .replace(/\s+/g, " ")
+        .trim());
+    const dateIndex = cells.findIndex((cell) => /20\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}/.test(cell));
+    if (dateIndex < 0) continue;
+
+    const dateKey = normalizeOilDateText(cells[dateIndex]);
+    const priceText = cells.slice(dateIndex + 1)
+      .find((cell) => /^\d[\d,]*(?:\.\d+)?$/.test(cell.replace(/\s+/g, ""))) || "";
+    if (dateKey) rows.push({ dateKey, dateText: cells[dateIndex], priceText: priceText.replace(/\s+/g, "") });
+  }
+  return rows;
 }
 
 export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {}) {
@@ -240,7 +373,11 @@ async function ensureChrome(options) {
   if (!chromePath) {
     throw new Error("Chrome or Edge executable was not found.");
   }
-  const profileDir = resolve(options.profileDir || join(process.cwd(), "chrome-travel-proof-profile"));
+  const profileDir = resolve(
+    options.profileDir ||
+    process.env.TRAVEL_PROOF_CHROME_PROFILE ||
+    join(process.cwd(), "chrome-travel-proof-profile")
+  );
   await mkdir(profileDir, { recursive: true });
 
   spawn(chromePath, [
@@ -279,6 +416,30 @@ async function createTab(endpoint) {
   return response.json();
 }
 
+async function acquireAutomationTab(endpoint, key, fastCapture) {
+  if (fastCapture && reusableTabIds.has(key)) {
+    const targetId = reusableTabIds.get(key);
+    const target = (await listChromeTargets()).find((candidate) => candidate.id === targetId);
+    if (target?.webSocketDebuggerUrl) return target;
+    reusableTabIds.delete(key);
+  }
+
+  const tab = await createTab(endpoint);
+  if (fastCapture) reusableTabIds.set(key, tab.id);
+  return tab;
+}
+
+async function releaseAutomationTab(tab, key, fastCapture) {
+  if (fastCapture && reusableTabIds.get(key) === tab.id) return;
+  await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.id}`).catch(() => {});
+}
+
+function isFastCaptureEnabled(options = {}) {
+  return options.fastCapture === undefined
+    ? DEFAULT_FAST_CAPTURE_ENABLED
+    : Boolean(options.fastCapture);
+}
+
 async function listChromeTargets() {
   const response = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`);
   if (!response.ok) {
@@ -288,8 +449,16 @@ async function listChromeTargets() {
 }
 
 async function navigate(client, url) {
+  const loaded = client.waitForEvent("Page.loadEventFired", 15000);
   await client.call("Page.navigate", { url });
-  await delay(7000);
+  await loaded.catch(async () => {
+    await waitFor(
+      client,
+      "document.readyState === 'interactive' || document.readyState === 'complete'",
+      5000,
+      "페이지 로딩"
+    );
+  });
 }
 
 async function prepareDirections(client) {
@@ -957,15 +1126,49 @@ async function getProofPanelClip(client) {
   return result.result.result.value || { x: 63, y: 0, width: 410, height: 560, scale: 1 };
 }
 
+async function getPrimaryRouteSummaryText(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const candidates = [...document.querySelectorAll('[class*="StyledCarDirectionsSummaryItem"],button,[role=button]')]
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          const text = (element.innerText || '').trim().replace(/\\s+/g, ' ');
+          return { text, visible: rect.width > 0 && rect.height > 0, x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        })
+        .filter((item) =>
+          item.visible &&
+          item.x >= 60 &&
+          item.x < 470 &&
+          item.w >= 320 &&
+          item.h >= 90 &&
+          item.h <= 240 &&
+          item.text.includes('실시간 추천')
+        )
+        .sort((a, b) => (a.y - b.y) || (b.h - a.h));
+      return candidates[0]?.text || '';
+    })()
+  `, true);
+  const summaryText = String(result.result.result.value || "");
+  if (summaryText) return summaryText;
+
+  const bodyText = await evaluate(client, "document.body.innerText", true);
+  return String(bodyText.result.result.value || "");
+}
+
 async function highlightOilPriceRow(client, targetDate) {
   const result = await evaluate(client, `
     (() => {
       const targetDate = ${JSON.stringify(targetDate)};
+      const normalizeDate = (value) => {
+        const numbers = String(value || '').match(/\\d+/g) || [];
+        if (numbers.length < 3) return '';
+        const [year, month, day] = numbers.slice(-3);
+        return [year.padStart(4, '0'), month.padStart(2, '0'), day.padStart(2, '0')].join('-');
+      };
       const rows = [...document.querySelectorAll('.tbl_exchange.today tbody tr')];
       const row = rows.find((candidate) => {
-        const dateCell = candidate.querySelector('td.date');
-        const dateText = (dateCell?.innerText || '').trim().replace(/\\s+/g, '');
-        return dateText === targetDate;
+        const dateCell = candidate.querySelector('td.date') || candidate.querySelector('td');
+        return normalizeDate(dateCell?.innerText) === targetDate;
       });
       if (!row) return null;
 
@@ -988,6 +1191,25 @@ async function highlightOilPriceRow(client, targetDate) {
     })()
   `, true);
   return result.result.result.value || null;
+}
+
+async function readOilPricePageDates(client, fallbackYear) {
+  const result = await evaluate(client, `
+    (() => {
+      const fallbackYear = ${JSON.stringify(fallbackYear)};
+      return [...document.querySelectorAll('.tbl_exchange.today tbody tr')]
+        .map((row) => (row.querySelector('td.date') || row.querySelector('td'))?.innerText || '')
+        .map((value) => {
+          const numbers = String(value).match(/\\d+/g) || [];
+          const parts = numbers.length >= 3 ? numbers.slice(-3) : (numbers.length === 2 ? [fallbackYear, ...numbers] : []);
+          if (parts.length !== 3) return '';
+          const [year, month, day] = parts;
+          return [String(year).padStart(4, '0'), String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+        })
+        .filter(Boolean);
+    })()
+  `, true);
+  return result.result.result.value || [];
 }
 
 async function getOilProofClip(client) {
@@ -1093,6 +1315,7 @@ class CdpClient {
     this.targetId = targetId;
     this.nextId = 1;
     this.pending = new Map();
+    this.eventWaiters = new Map();
   }
 
   static connect(url, targetId = "") {
@@ -1118,6 +1341,11 @@ class CdpClient {
 
   handleMessage(data) {
     const payload = JSON.parse(String(data));
+    if (payload.method && this.eventWaiters.has(payload.method)) {
+      const waiters = this.eventWaiters.get(payload.method);
+      this.eventWaiters.delete(payload.method);
+      for (const waiter of waiters) waiter.resolve(payload.params || {});
+    }
     if (!payload.id || !this.pending.has(payload.id)) {
       return;
     }
@@ -1131,7 +1359,37 @@ class CdpClient {
     pending.resolve(payload);
   }
 
+  waitForEvent(method, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      const waiters = this.eventWaiters.get(method) || [];
+      const waiter = {
+        resolve: (value) => {
+          clearTimeout(waiter.timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(waiter.timer);
+          reject(error);
+        },
+        timer: null
+      };
+      waiter.timer = setTimeout(() => {
+        const current = this.eventWaiters.get(method) || [];
+        this.eventWaiters.set(method, current.filter((candidate) => candidate !== waiter));
+        waiter.reject(new Error(`${method} 대기 시간이 초과되었습니다.`));
+      }, timeoutMs);
+      waiters.push(waiter);
+      this.eventWaiters.set(method, waiters);
+    });
+  }
+
   close() {
+    for (const pending of this.pending.values()) pending.reject(new Error("Chrome 연결이 종료되었습니다."));
+    this.pending.clear();
+    for (const waiters of this.eventWaiters.values()) {
+      for (const waiter of waiters) waiter.reject(new Error("Chrome 연결이 종료되었습니다."));
+    }
+    this.eventWaiters.clear();
     this.socket.close();
   }
 }

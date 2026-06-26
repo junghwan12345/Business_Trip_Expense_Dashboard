@@ -41,6 +41,69 @@ test("parseTravelProofTable reads the required Korean columns from pasted Excel 
   assert.equal(rows[0].posCode, "P045763");
 });
 
+test("parseTravelProofTable finds the header row when an Excel title row is pasted first", () => {
+  const table = [
+    "현지방 방문 일정",
+    "대리점명\tPOS코드\tPOS명\t유형요약\tPOS주소\t날짜\t시간",
+    "태왕대리점\tP001\t태왕디아너스오페라\t현장방문\t대구 중구 동성로 1\t06/18(목)\t오전"
+  ].join("\n");
+
+  const rows = parseTravelProofTable(table);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sourceRowNumber, 3);
+  assert.equal(rows[0].dealerName, "태왕대리점");
+  assert.equal(rows[0].posName, "태왕디아너스오페라");
+  assert.equal(rows[0].dateLabel, "06/18(목)");
+  assert.equal(rows[0].timeOfDay, "오전");
+});
+
+test("parseTravelProofTable accepts common field-visit header aliases", () => {
+  const table = [
+    "대리점\tPOS No\t매장명\t구분\t매장주소\t방문일자\t시간대",
+    "태왕대리점\tP001\t태왕디아너스오페라\t현장방문\t대구 중구 동성로 1\t2026. 6. 18.\tPM"
+  ].join("\n");
+
+  const rows = parseTravelProofTable(table);
+  const groups = buildMonthlyProofGroups(rows, {
+    year: 2026,
+    month: 6,
+    start: "출발지",
+    destination: "도착지"
+  });
+
+  assert.equal(rows[0].dealerName, "태왕대리점");
+  assert.equal(rows[0].posCode, "P001");
+  assert.equal(rows[0].posAddress, "대구 중구 동성로 1");
+  assert.equal(groups.valid.length, 1);
+  assert.equal(groups.valid[0].dateKey, "2026-06-18");
+});
+
+test("parseTravelProofTable infers field-visit columns when only Excel data rows are pasted", () => {
+  const table = [
+    "태왕대리점\tP001\t태왕디아너스오페라\t현장방문\t대구 중구 동성로 1\t06/18(목)\t오전",
+    "태왕대리점\tP002\t태왕디아너스오페라2\t현장방문\t대구 중구 동성로 2\t06/18(목)\t오후"
+  ].join("\n");
+
+  const rows = parseTravelProofTable(table);
+  const groups = buildMonthlyProofGroups(rows, {
+    year: 2026,
+    month: 6,
+    start: "출발지",
+    destination: "도착지"
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].dealerName, "태왕대리점");
+  assert.equal(rows[0].posCode, "P001");
+  assert.equal(rows[0].posName, "태왕디아너스오페라");
+  assert.equal(rows[0].posAddress, "대구 중구 동성로 1");
+  assert.equal(rows[0].dateLabel, "06/18(목)");
+  assert.equal(rows[0].timeOfDay, "오전");
+  assert.equal(groups.valid.length, 1);
+  assert.equal(groups.valid[0].dateKey, "2026-06-18");
+});
+
 test("canRunCapture allows default server saving when no folder is selected", () => {
   assert.equal(canRunCapture({ groupCount: 1, hasDirectoryHandle: false, running: false }), true);
   assert.equal(canRunCapture({ groupCount: 0, hasDirectoryHandle: false, running: false }), false);
@@ -75,6 +138,21 @@ test("extractRouteDistanceKm reads the first route distance from Naver summary t
   const summary = ["실시간 추천", "3시간 17분", "242km", "택시비 260,120원"].join("\n");
 
   assert.equal(extractRouteDistanceKm(summary), 242);
+});
+
+test("extractRouteDistanceKm prefers the real-time recommended route over unrelated map distances", () => {
+  const summary = [
+    "주변 주차장 1.2km",
+    "실시간 추천",
+    "29분 7.8km",
+    "태평로 1.5km"
+  ].join("\n");
+
+  assert.equal(extractRouteDistanceKm(summary), 7.8);
+});
+
+test("extractRouteDistanceKm converts short routes shown in meters", () => {
+  assert.equal(extractRouteDistanceKm("실시간 추천 4분 850m"), 0.85);
 });
 
 test("parseFuelPriceWon uses whole won from Naver oil close price", () => {
@@ -173,6 +251,21 @@ test("createManualProofGroup builds a separate same-day capture item without Upl
     group.sourceRows.map((row) => row.dealerName),
     ["대구 진석타워 주차장", "유플러스 동인사옥"]
   );
+});
+
+test("createManualProofGroup allows a direct route without waypoints", () => {
+  const group = createManualProofGroup({
+    dateKey: "2026-06-18",
+    start: "대구역",
+    destination: "동대구역",
+    waypointNames: ["", ""]
+  });
+
+  assert.equal(group.waypoints.length, 0);
+  assert.equal(group.start, "대구역");
+  assert.equal(group.destination, "동대구역");
+  assert.match(group.fileBaseName, /^2026-06-18-manual-/);
+  assert.deepEqual(group.sourceRows, [{ dealerName: "동대구역", manual: true }]);
 });
 
 test("buildFuelExpensePasteRows keeps same-day manual and Excel rows separate", () => {

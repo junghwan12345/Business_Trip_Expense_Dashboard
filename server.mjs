@@ -1,7 +1,8 @@
 import http from "node:http";
-import { createReadStream, existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { access, copyFile, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, join, normalize, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { normalizeQuoteFailure, normalizeYahooQuote } from "./src/dashboard/market-data.js";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
 import { normalizeCorporateCardEntry } from "./src/travel-proof/corporate-card.js";
@@ -17,12 +18,25 @@ import {
 import { DEFAULT_JSON_BODY_LIMIT, jsonBodyLimitForPath } from "./src/shared/server-limits.js";
 import { resolveDefaultOutputRoot } from "./src/shared/storage-root.js";
 import {
+  isLikelyGoogleDrivePath,
+  isPathWithin,
+  monthFolderPaths,
+  normalizePersonalSettings,
+  resolvePersonalDataRoot
+} from "./src/shared/personal-storage.js";
+import {
   buildMonthlyProofGroups,
   parseTravelProofTable
 } from "./src/travel-proof/travel-proof.js";
 
 const root = process.cwd();
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
+const personalDataRoot = resolvePersonalDataRoot();
+const personalSettingsFile = join(personalDataRoot, "personal-settings.json");
+const pendingSyncRoot = join(personalDataRoot, "pending-sync");
+let personalSettings = readPersonalSettingsSync();
+applyPersonalSettingsToEnvironment(personalSettings);
 const STORAGE_SETTING_KEYS = [
   "route",
   "oil",
@@ -55,8 +69,10 @@ const contentTypes = {
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
 
+const automationModulePromise = import("./src/travel-proof/naver-map-automation.js");
+
 async function loadAutomationModule() {
-  return import(`./src/travel-proof/naver-map-automation.js?updated=${Date.now()}`);
+  return automationModulePromise;
 }
 
 const server = http.createServer(async (request, response) => {
@@ -74,6 +90,26 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/storage-info" && request.method === "GET") {
     await handleStorageInfo(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/personal-storage" && request.method === "GET") {
+    await handlePersonalStorageInfo(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/personal-storage" && request.method === "POST") {
+    await handlePersonalStorageUpdate(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/personal-storage/sync" && request.method === "POST") {
+    await handlePendingStorageSync(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/prerequisites" && request.method === "GET") {
+    await handlePrerequisites(response);
     return;
   }
 
@@ -187,6 +223,151 @@ async function handleQuotes(url, response) {
   const entries = await Promise.all(symbols.map(async (symbol) => [symbol, await fetchYahooQuote(symbol)]));
   response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(Object.fromEntries(entries)));
+}
+
+async function handlePersonalStorageInfo(response) {
+  const status = await personalStorageStatus();
+  sendJson(response, { ok: true, settings: personalSettings, status });
+}
+
+async function handlePersonalStorageUpdate(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const requestedDriveRoot = String(body.driveRoot || "").trim();
+    if (!requestedDriveRoot) throw new Error("본인 Google Drive 폴더를 선택해 주세요.");
+    const driveRoot = resolve(requestedDriveRoot);
+
+    const selected = await stat(driveRoot);
+    if (!selected.isDirectory()) throw new Error("선택한 Google Drive 경로가 폴더가 아닙니다.");
+    const next = normalizePersonalSettings({
+      driveRoot,
+      updateRoot: body.updateRoot || personalSettings.updateRoot,
+      onboardingComplete: true,
+      updatedAt: new Date().toISOString()
+    });
+    await verifyWritableStorage(next.outputRoot, body.monthKey);
+    await savePersonalSettings(next);
+    personalSettings = next;
+    applyPersonalSettingsToEnvironment(next);
+    sendJson(response, {
+      ok: true,
+      settings: next,
+      status: await personalStorageStatus(),
+      warning: isLikelyGoogleDrivePath(driveRoot) ? "" : "Google Drive 경로인지 확인해 주세요."
+    });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function handlePendingStorageSync(response) {
+  try {
+    if (!personalSettings.outputRoot) throw new Error("먼저 본인 Google Drive 폴더를 연결해 주세요.");
+    await verifyWritableStorage(personalSettings.outputRoot);
+    const moved = await movePendingDirectory(pendingSyncRoot, personalSettings.outputRoot);
+    sendJson(response, { ok: true, moved, status: await personalStorageStatus() });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 409);
+  }
+}
+
+async function handlePrerequisites(response) {
+  const chromeCandidates = [
+    process.env.CHROME_PATH,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  ].filter(Boolean);
+  sendJson(response, {
+    ok: true,
+    prerequisites: {
+      windows: process.platform === "win32",
+      chrome: chromeCandidates.some((candidate) => existsSync(candidate)),
+      googleDrive: Boolean(personalSettings.driveRoot && existsSync(personalSettings.driveRoot)),
+      dataRoot: personalDataRoot,
+      chromeProfileRoot: process.env.TRAVEL_PROOF_CHROME_PROFILE || join(personalDataRoot, "chrome-profile")
+    }
+  });
+}
+
+function readPersonalSettingsSync() {
+  try {
+    return normalizePersonalSettings(JSON.parse(readFileSync(personalSettingsFile, "utf8")));
+  } catch {
+    return normalizePersonalSettings();
+  }
+}
+
+async function savePersonalSettings(settings) {
+  await mkdir(personalDataRoot, { recursive: true });
+  await writeFile(personalSettingsFile, JSON.stringify(settings, null, 2), "utf8");
+}
+
+function applyPersonalSettingsToEnvironment(settings) {
+  if (settings.outputRoot) process.env.TRAVEL_PROOF_OUTPUT_ROOT = settings.outputRoot;
+  process.env.TRAVEL_PROOF_DATA_ROOT = personalDataRoot;
+  process.env.TRAVEL_PROOF_CHROME_PROFILE ||= join(personalDataRoot, "chrome-profile");
+}
+
+async function verifyWritableStorage(outputRoot, monthKey = "") {
+  await mkdir(outputRoot, { recursive: true });
+  await access(outputRoot, 2);
+  const testFile = join(outputRoot, `.write-test-${process.pid}-${Date.now()}`);
+  await writeFile(testFile, "ok", "utf8");
+  await unlink(testFile);
+  if (/^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
+    await Promise.all(monthFolderPaths(outputRoot, monthKey).map((folder) => mkdir(folder, { recursive: true })));
+  }
+}
+
+async function personalStorageStatus() {
+  let driveOnline = false;
+  if (personalSettings.outputRoot) {
+    try {
+      await mkdir(personalSettings.outputRoot, { recursive: true });
+      await access(personalSettings.outputRoot, 2);
+      driveOnline = true;
+    } catch {}
+  }
+  return {
+    configured: personalSettings.onboardingComplete,
+    driveOnline,
+    usingFallback: Boolean(personalSettings.onboardingComplete && !driveOnline),
+    pendingFiles: await countFiles(pendingSyncRoot)
+  };
+}
+
+async function countFiles(directory) {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const counts = await Promise.all(entries.map((entry) => entry.isDirectory()
+      ? countFiles(join(directory, entry.name))
+      : 1));
+    return counts.reduce((sum, count) => sum + count, 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function movePendingDirectory(source, destination) {
+  if (!isPathWithin(personalDataRoot, source) || !existsSync(source)) return 0;
+  let moved = 0;
+  const entries = await readdir(source, { withFileTypes: true });
+  await mkdir(destination, { recursive: true });
+  for (const entry of entries) {
+    const sourcePath = join(source, entry.name);
+    if (entry.isDirectory()) {
+      moved += await movePendingDirectory(sourcePath, join(destination, entry.name));
+      await rm(sourcePath, { recursive: false, force: true }).catch(() => {});
+      continue;
+    }
+    const fileName = nextAvailableFileName(destination, entry.name);
+    await copyFile(sourcePath, join(destination, fileName));
+    await unlink(sourcePath);
+    moved += 1;
+  }
+  if (source === pendingSyncRoot) await rm(source, { recursive: true, force: true }).catch(() => {});
+  return moved;
 }
 
 async function handleStorageInfo(response) {
@@ -365,7 +546,7 @@ async function handleTravelProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureNaverRoute } = await loadAutomationModule();
-    const result = await captureNaverRoute(body.job);
+    const result = await captureNaverRoute(body.job, { fastCapture: body.fastCapture });
     sendJson(response, { ok: true, result });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
@@ -376,7 +557,7 @@ async function handleTravelProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureNaverRoute } = await loadAutomationModule();
-    const result = await captureNaverRoute(body.job);
+    const result = await captureNaverRoute(body.job, { fastCapture: body.fastCapture });
     const outputRoot = body.outputRoot || await storageRootFor("route");
     const monthKey = result.dateKey.slice(0, 7);
     const outputDirectory = join(outputRoot, monthKey, proofSubfolder("route"));
@@ -404,7 +585,7 @@ async function handleOilProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureOilPriceProof } = await loadAutomationModule();
-    const result = await captureOilPriceProof(body.dateKey);
+    const result = await captureOilPriceProof(body.dateKey, { fastCapture: body.fastCapture });
     sendJson(response, { ok: true, result });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
@@ -415,7 +596,7 @@ async function handleOilProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureOilPriceProof } = await loadAutomationModule();
-    const result = await captureOilPriceProof(body.dateKey);
+    const result = await captureOilPriceProof(body.dateKey, { fastCapture: body.fastCapture });
     const outputRoot = body.outputRoot || await storageRootFor("oil");
     const monthKey = result.dateKey.slice(0, 7);
     const outputDirectory = join(outputRoot, monthKey, proofSubfolder("oil"));
@@ -618,6 +799,10 @@ async function ensureProofMonthFolders(outputRoot, monthKey) {
     mkdir(join(outputRoot, monthKey, proofSubfolder("route")), { recursive: true }),
     mkdir(join(outputRoot, monthKey, proofSubfolder("oil")), { recursive: true }),
     mkdir(join(outputRoot, monthKey, proofSubfolder("extra")), { recursive: true }),
+    mkdir(join(outputRoot, monthKey, COUPANG_PROOF_FOLDERS.welfare), { recursive: true }),
+    mkdir(join(outputRoot, monthKey, COUPANG_PROOF_FOLDERS.supply), { recursive: true }),
+    mkdir(join(outputRoot, monthKey, COUPANG_PROOF_FOLDERS.review), { recursive: true }),
+    mkdir(join(outputRoot, monthKey, "엑셀자료"), { recursive: true }),
     mkdir(join(outputRoot, monthKey, proofSubfolder("ppt")), { recursive: true })
   ]);
 }
@@ -625,7 +810,16 @@ async function ensureProofMonthFolders(outputRoot, monthKey) {
 async function storageRootFor(key) {
   const storage = defaultStorage();
   const settings = await readStorageSettings(storage.outputRoot);
-  return settings[key] || storage.outputRoot;
+  const preferredRoot = settings[key] || storage.outputRoot;
+  if (!personalSettings.onboardingComplete) return preferredRoot;
+  try {
+    await mkdir(preferredRoot, { recursive: true });
+    await access(preferredRoot, 2);
+    return preferredRoot;
+  } catch {
+    await mkdir(pendingSyncRoot, { recursive: true });
+    return pendingSyncRoot;
+  }
 }
 
 function effectiveStorageRoots(defaultRoot, settings) {
@@ -633,18 +827,23 @@ function effectiveStorageRoots(defaultRoot, settings) {
 }
 
 async function readStorageSettings(defaultRoot) {
-  const filePath = join(defaultRoot, STORAGE_SETTINGS_FILE);
+  const filePath = join(personalDataRoot, STORAGE_SETTINGS_FILE);
   try {
     const text = await readFile(filePath, "utf8");
     return normalizeStorageSettings(JSON.parse(text));
   } catch {
-    return {};
+    try {
+      const legacyText = await readFile(join(defaultRoot, STORAGE_SETTINGS_FILE), "utf8");
+      return normalizeStorageSettings(JSON.parse(legacyText));
+    } catch {
+      return {};
+    }
   }
 }
 
 async function writeStorageSettings(defaultRoot, settings) {
-  const filePath = join(defaultRoot, STORAGE_SETTINGS_FILE);
-  await mkdir(join(defaultRoot, "settings"), { recursive: true });
+  const filePath = join(personalDataRoot, STORAGE_SETTINGS_FILE);
+  await mkdir(join(personalDataRoot, "settings"), { recursive: true });
   await writeFile(filePath, JSON.stringify(normalizeStorageSettings(settings), null, 2), "utf8");
 }
 
@@ -686,7 +885,7 @@ async function writeExpenseLedger(ledger) {
 }
 
 async function readCorporateCardLedger() {
-  const ledgerRoot = defaultStorage().outputRoot;
+  const ledgerRoot = await storageRootFor("ledger");
   const filePath = join(ledgerRoot, CORPORATE_CARD_LEDGER_FILE);
   try {
     const text = await readFile(filePath, "utf8");
@@ -704,7 +903,7 @@ async function readCorporateCardLedger() {
 }
 
 async function writeCorporateCardLedger(ledger) {
-  const ledgerRoot = defaultStorage().outputRoot;
+  const ledgerRoot = await storageRootFor("ledger");
   await mkdir(ledgerRoot, { recursive: true });
   await writeFile(join(ledgerRoot, CORPORATE_CARD_LEDGER_FILE), JSON.stringify({
     version: 1,
@@ -1027,7 +1226,25 @@ async function fetchYahooQuote(symbol) {
   }
 }
 
-server.listen(port, () => {
+export function startServer({ port: requestedPort = port, host: requestedHost = host } = {}) {
+  if (server.listening) {
+    const address = server.address();
+    return Promise.resolve({ server, host: requestedHost, port: address?.port || requestedPort });
+  }
+  return new Promise((resolveServer, rejectServer) => {
+    const handleError = (error) => rejectServer(error);
+    server.once("error", handleError);
+    server.listen(requestedPort, requestedHost, () => {
+      server.off("error", handleError);
+      const address = server.address();
+      const activePort = typeof address === "object" && address ? address.port : requestedPort;
+      console.log(`Business trip proof running at http://${requestedHost}:${activePort}`);
+      resolveServer({ server, host: requestedHost, port: activePort });
+    });
+  });
+}
 
-  console.log(`Personal dashboard running at http://localhost:${port}`);
-});
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isDirectRun) {
+  await startServer();
+}

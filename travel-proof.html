@@ -4,9 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>출장비 증빙 도구</title>
-    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css" />
+    <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/regular/style.css" />
+    <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/fill/style.css" />
+    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260625-workspace-scale" />
   </head>
-  <body>
+  <body data-active-page="distance">
+    <div class="onboarding-overlay" id="onboardingOverlay" hidden>
+      <section class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+        <p class="eyebrow">처음 한 번만 설정</p>
+        <h1 id="onboardingTitle">본인 Google Drive 연결</h1>
+        <p class="onboarding-copy">증빙은 선택한 본인 Drive의 <strong>출장비증빙</strong> 폴더에만 저장됩니다. 계정 비밀번호나 Google 토큰은 앱에 저장하지 않습니다.</p>
+        <div class="prerequisite-grid" id="prerequisiteGrid">
+          <div class="prerequisite-card"><span>Windows</span><strong data-prerequisite="windows">확인 중</strong></div>
+          <div class="prerequisite-card"><span>Chrome</span><strong data-prerequisite="chrome">확인 중</strong></div>
+          <div class="prerequisite-card"><span>Google Drive</span><strong data-prerequisite="googleDrive">선택 필요</strong></div>
+        </div>
+        <label class="onboarding-field">
+          본인 Google Drive 폴더
+          <div class="path-picker-row">
+            <input id="personalDriveRootInput" type="text" placeholder="예: G:\내 드라이브" />
+            <button class="secondary-button" id="browsePersonalDriveButton" type="button">폴더 찾기</button>
+          </div>
+        </label>
+        <label class="onboarding-field" id="updateRootField">
+          업데이트 공유 폴더 (선택)
+          <div class="path-picker-row">
+            <input id="updateRootInput" type="text" placeholder="관리자가 공유한 앱 업데이트 폴더" />
+            <button class="secondary-button" id="browseUpdateRootButton" type="button">폴더 찾기</button>
+          </div>
+        </label>
+        <p class="folder-label" id="onboardingStatus">Drive 폴더를 선택하면 쓰기와 동기화 위치를 확인합니다.</p>
+        <div class="onboarding-actions">
+          <button class="secondary-button" id="cancelOnboardingButton" type="button" hidden>취소</button>
+          <button class="primary-button" id="savePersonalDriveButton" type="button">연결하고 시작</button>
+        </div>
+      </section>
+    </div>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
@@ -28,14 +61,28 @@
         <div class="sidebar-footer">
           <span>현재 상태</span>
           <strong id="browserStatus">준비됨</strong>
+          <small id="appVersionLabel">개인 저장 모드</small>
+          <small id="updateStatusLabel">업데이트 확인 전</small>
         </div>
       </aside>
 
       <main class="app-main">
-        <header class="topbar">
+        <div class="storage-health-banner" id="storageHealthBanner" hidden>
           <div>
-            <p class="eyebrow">Expense Proof Automation</p>
-            <h1>출장비 증빙 작업대</h1>
+            <strong id="storageHealthTitle">Drive 연결 확인 필요</strong>
+            <span id="storageHealthDetail"></span>
+          </div>
+          <button class="secondary-button compact" id="syncPendingButton" type="button">대기자료 동기화</button>
+        </div>
+        <header class="topbar">
+          <div class="topbar-identity">
+            <span class="distance-title-icon" aria-hidden="true"><i class="ph ph-gas-pump" id="pageIcon"></i></span>
+            <div>
+              <p class="eyebrow">Expense Proof Automation</p>
+              <h1 id="pageTitle">거리 유류대 캡처</h1>
+              <p class="page-description" id="pageDescription">출장 경로와 날짜별 유가 증빙을 자동으로 준비합니다.</p>
+              <p class="folder-label top-folder" id="folderLabel">저장 폴더가 선택되지 않았습니다.</p>
+            </div>
           </div>
           <div class="topbar-controls">
             <label>
@@ -48,96 +95,114 @@
             </label>
             <button class="secondary-button" id="chooseFolderButton" type="button">저장 폴더 선택</button>
           </div>
+          <div class="distance-header-actions">
+            <button class="distance-help-button" id="distanceHelpButton" type="button" title="화면 도움말" aria-label="화면 도움말" aria-expanded="false"><i class="ph ph-question"></i></button>
+            <p class="distance-help-note" id="distanceHelpNote" hidden>엑셀표를 붙여넣고 일정을 확인한 뒤 캡처 시작을 누르세요.</p>
+            <details class="distance-profile-menu">
+              <summary aria-label="메뉴 열기"><span>김</span><i class="ph ph-caret-down"></i></summary>
+              <div class="distance-profile-popover">
+                <strong>출장비 증빙</strong>
+                <small>이동할 메뉴를 선택하세요.</small>
+                <button type="button" data-page-target="distance"><i class="ph ph-map-trifold"></i>거리·유류대</button>
+                <button type="button" data-page-target="coupang"><i class="ph ph-receipt"></i>조활비·소모품비</button>
+                <button type="button" data-page-target="excel-export"><i class="ph ph-file-xls"></i>엑셀 작성</button>
+                <button type="button" data-page-target="ppt"><i class="ph ph-presentation-chart"></i>지출결의서 PPT</button>
+                <button type="button" data-page-target="storage"><i class="ph ph-folder-open"></i>저장자료</button>
+              </div>
+            </details>
+          </div>
         </header>
-        <details class="advanced-settings">
-          <summary>날짜 기준 고급 설정</summary>
-          <p class="folder-label">보기 연도와 보기 월은 자동으로 현재 날짜를 사용합니다. 다른 월 자료를 만들 때만 위 설정을 조정합니다.</p>
-        </details>
-        <details class="drive-guide">
-          <summary>Google Drive 기본 저장 안내</summary>
-          <p>Google Drive 데스크톱 동기화 폴더의 출장비증빙 폴더를 기본 저장소로 사용합니다.</p>
-          <p>거리캡처, 유가캡처, 추가증빙, 조활비와 소모품비 쿠팡 캡처본도 같은 월 폴더 아래에 저장됩니다.</p>
-          <p>추가증빙 예시: 추가증빙/2026-05-19/영수증.jpg 또는 추가증빙/26-05-19 주차영수증.jpg</p>
-          <p>동기화가 끝난 뒤 PPT 생성 버튼을 누르면 저장된 자료를 분석해 지출결의서 PPT를 만듭니다.</p>
-        </details>
-
-        <p class="folder-label top-folder" id="folderLabel">저장 폴더가 선택되지 않았습니다.</p>
 
         <section class="page active" data-page-panel="distance">
-          <div class="summary-grid">
+          <div class="summary-grid distance-summary-grid">
             <article class="stat-card">
-              <span>출장 목록</span>
-              <strong id="previewCount">현지방 0건 / 출장 0건</strong>
-              <small>총 0건</small>
+              <span class="stat-icon" aria-hidden="true"><i class="ph ph-clipboard-text"></i></span>
+              <div class="stat-copy">
+                <span>출장 목록</span>
+                <strong id="previewCount">현지방 0건 / 출장 0건</strong>
+                <small>총 0건</small>
+              </div>
+              <button class="stat-card-link" type="button" data-summary-target="trip-input" aria-label="출장 데이터 입력으로 이동"><i class="ph ph-caret-right"></i></button>
             </article>
             <article class="stat-card">
-              <span>캡처결과</span>
-              <strong id="captureResultSummary">0%</strong>
-              <small id="captureResultDetail">성공 0건 · 실패 0건</small>
-              <progress id="progressBar" max="1" value="0" hidden></progress>
+              <span class="stat-icon" aria-hidden="true"><i class="ph ph-target"></i></span>
+              <div class="stat-copy">
+                <span>캡처결과</span>
+                <strong id="captureResultSummary">0%</strong>
+                <small id="captureResultDetail">성공 0건 · 실패 0건</small>
+                <progress id="progressBar" max="1" value="0" hidden></progress>
+              </div>
+              <button class="stat-card-link" type="button" data-summary-target="capture-result" aria-label="캡처 실행 결과로 이동"><i class="ph ph-caret-right"></i></button>
             </article>
             <article class="stat-card">
-              <span>실패 재처리</span>
-              <button class="secondary-button compact" id="retryFailedButton" type="button" disabled>실패건만 재실행</button>
-            </article>
-            <article class="stat-card">
-              <span>현장방문 결과</span>
-              <button class="secondary-button compact" id="copyFuelOutputButton" type="button" disabled>복사</button>
+              <span class="stat-icon" aria-hidden="true"><i class="ph ph-arrows-clockwise"></i></span>
+              <div class="stat-copy retry-copy">
+                <span>실패 재처리</span>
+                <button class="secondary-button compact" id="retryFailedButton" type="button" disabled>실패건만 재실행</button>
+              </div>
             </article>
           </div>
 
-          <div class="content-grid">
-            <section class="panel">
+          <div class="content-grid distance-content-grid">
+            <section class="panel" id="tripInputPanel">
               <div class="panel-heading">
-                <h2>출장 데이터 입력</h2>
-                <button class="primary-button" id="runButton" type="button" disabled>캡처 시작</button>
+                <h2><i class="ph ph-clipboard-text" aria-hidden="true"></i>출장 데이터 입력</h2>
+                <button class="primary-button" id="runButton" type="button" disabled><i class="ph-fill ph-play" aria-hidden="true"></i>캡처 시작</button>
               </div>
 
               <div class="form-grid">
                 <label>
                   출발지
-                  <input id="startInput" type="text" placeholder="예: 태왕디아너스오페라" />
+                  <span class="input-with-icon"><i class="ph-fill ph-map-pin"></i><input id="startInput" type="text" placeholder="예: 태왕디아너스오페라" /></span>
                 </label>
                 <label>
                   도착지
-                  <input id="destinationInput" type="text" placeholder="예: 태왕디아너스오페라" />
+                  <span class="input-with-icon"><i class="ph-fill ph-map-pin"></i><input id="destinationInput" type="text" placeholder="예: 태왕디아너스오페라" /></span>
                 </label>
               </div>
 
               <label class="table-paste-label">
                 <span class="label-row">
                   현지방 엑셀표 붙여넣기
-                  <button class="ghost-button compact" id="loadSampleButton" type="button">샘플 넣기</button>
+                  <button class="ghost-button compact" id="loadSampleButton" type="button">샘플 보기 <i class="ph ph-clipboard-text"></i></button>
                 </span>
                 <textarea id="tableInput" spellcheck="false" placeholder="대리점명	POS코드	POS명	유형요약	POS주소	날짜	시간"></textarea>
               </label>
 
-              <div class="manual-box">
-                <div class="manual-heading">
-                  <h3>수동 경유지 추가</h3>
-                  <button class="secondary-button compact" id="addManualWaypointButton" type="button">수동 항목 추가</button>
+              <details class="manual-box manual-waypoint-box">
+                <summary>
+                  <span>
+                    <strong>경유지 수동입력</strong>
+                    <small>엑셀표에 없는 출장만 직접 추가합니다.</small>
+                  </span>
+                  <span class="manual-summary-action">선택 입력</span>
+                </summary>
+                <div class="manual-waypoint-content">
+                  <p class="folder-label">날짜만 선택하면 출발지에서 도착지까지 바로 캡처합니다. 경유지는 필요한 경우에만 입력하세요.</p>
+                  <div class="manual-waypoint-grid">
+                    <label>
+                      날짜
+                      <input id="manualDateSelect" type="date" />
+                    </label>
+                    <label>
+                      경유지 1 (선택)
+                      <input id="manualWaypoint1Input" type="text" placeholder="필요한 경우에만 입력" />
+                    </label>
+                    <label>
+                      경유지 2 (선택)
+                      <input id="manualWaypoint2Input" type="text" placeholder="선택 입력" />
+                    </label>
+                    <button class="secondary-button" id="addManualWaypointButton" type="button">출장 항목 추가</button>
+                  </div>
                 </div>
-                <p class="folder-label">엑셀표에 없는 출장지를 날짜별 별도 항목으로 추가합니다.</p>
-                <label>
-                  날짜
-                  <input id="manualDateSelect" type="date" />
-                </label>
-                <label>
-                  경유지 1
-                  <input id="manualWaypoint1Input" type="text" placeholder="예: 대구 진석타워 주차장" />
-                </label>
-                <label>
-                  경유지 2
-                  <input id="manualWaypoint2Input" type="text" placeholder="선택 입력" />
-                </label>
-              </div>
+              </details>
 
               <button class="secondary-button" id="previewButton" type="button" hidden>미리보기</button>
             </section>
 
             <section class="panel">
               <div class="panel-heading">
-                <h2>날짜별 경유지</h2>
+                <h2><i class="ph ph-calendar-blank" aria-hidden="true"></i>출장 일정</h2>
                 <div class="calendar-controls">
                   <button class="secondary-button compact" id="prevMonthButton" type="button">‹</button>
                   <strong id="calendarMonthLabel">-</strong>
@@ -150,11 +215,12 @@
             </section>
           </div>
 
-          <section class="panel result-panel">
-            <div class="panel-heading">
-              <h2>캡처 실행 결과</h2>
-            </div>
-            <div class="result-grid">
+          <details class="panel result-panel" id="captureResultPanel">
+            <summary class="result-panel-summary">
+              <span><i class="ph-fill ph-check-circle" aria-hidden="true"></i>캡처 실행 결과</span>
+              <small id="captureResultFoldSummary">성공 0건 · 실패 0건</small>
+            </summary>
+            <div class="result-grid result-panel-content">
               <div>
                 <h3>성공</h3>
                 <ul id="successList"></ul>
@@ -164,47 +230,80 @@
                 <ul id="errorList"></ul>
               </div>
             </div>
-          </section>
-
-          <section class="panel paste-output">
-            <div class="panel-heading">
-              <h2>현장매장방문출장 엑셀 붙여넣기 결과</h2>
-              <button class="secondary-button" type="button" onclick="document.querySelector('#copyFuelOutputButton').click()">복사</button>
-            </div>
-            <textarea id="fuelOutput" readonly spellcheck="false" placeholder="캡처가 완료되면 엑셀에 바로 붙여넣을 유류대와 활동비 행이 여기에 만들어집니다."></textarea>
-          </section>
+          </details>
         </section>
 
-        <section class="page" data-page-panel="coupang">
-          <div class="summary-grid">
-            <article class="stat-card"><span>조활비 총한도</span><strong id="welfareLimitCard">150,000원</strong></article>
-            <article class="stat-card"><span>조활비 잔액</span><strong id="welfareRemainingCard">150,000원</strong></article>
-            <article class="stat-card"><span>소모품비 총한도</span><strong id="supplyLimitCard">50,000원</strong></article>
-            <article class="stat-card"><span>소모품비 잔액</span><strong id="supplyRemainingCard">50,000원</strong></article>
+        <section class="page workspace-page coupang-workspace" data-page-panel="coupang">
+          <div class="summary-grid workspace-summary-grid coupang-summary-grid allowance-balance-grid">
+            <article class="allowance-card welfare-card">
+              <span class="stat-icon"><i class="ph ph-users-three"></i></span>
+              <div class="allowance-copy">
+                <span>조활비</span>
+                <small>잔여 금액</small>
+                <strong id="welfareRemainingCard">150,000원</strong>
+                <em>일별 초기화</em>
+              </div>
+              <div class="allowance-progress">
+                <div class="allowance-usage-row">
+                  <span id="welfareUsageText">사용 0원 / 한도 150,000원</span>
+                  <b id="welfareUsagePercent">0%</b>
+                </div>
+                <div class="allowance-progress-track">
+                  <span id="welfareProgressBar"></span>
+                </div>
+                <small>한도 <b id="welfareLimitCard">150,000원</b></small>
+              </div>
+            </article>
+            <article class="allowance-card supply-card">
+              <span class="stat-icon"><i class="ph ph-package"></i></span>
+              <div class="allowance-copy">
+                <span>소모품비</span>
+                <small>잔여 금액</small>
+                <strong id="supplyRemainingCard">50,000원</strong>
+                <em>일별 초기화</em>
+              </div>
+              <div class="allowance-progress">
+                <div class="allowance-usage-row">
+                  <span id="supplyUsageText">사용 0원 / 한도 50,000원</span>
+                  <b id="supplyUsagePercent">0%</b>
+                </div>
+                <div class="allowance-progress-track">
+                  <span id="supplyProgressBar"></span>
+                </div>
+                <small>한도 <b id="supplyLimitCard">50,000원</b></small>
+              </div>
+            </article>
           </div>
 
+          <div class="coupang-work-grid">
           <section class="panel coupang-panel">
             <div class="panel-heading">
-              <h2>쿠팡 거래명세서 캡처</h2>
-              <button class="primary-button" id="runCoupangButton" type="button">쿠팡 거래명세서 캡처 시작</button>
+              <h2><i class="ph ph-camera"></i>쿠팡 거래명세서 캡처</h2>
+              <button class="primary-button" id="runCoupangButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
             </div>
             <p class="folder-label">쿠팡에 로그인된 자동화 Chrome에서 마이쿠팡 주문목록 기준으로 날짜별 거래명세서를 캡처합니다.</p>
-            <div class="form-grid">
-              <label>
-                조활비 인원 수
-                <input id="coupangPeopleInput" type="number" min="1" value="3" />
-              </label>
+            <div class="coupang-capture-row">
               <label>
                 캡처 날짜
                 <textarea id="coupangDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
               </label>
             </div>
+            <details class="compact-settings-box">
+              <summary>
+                <span><i class="ph ph-sliders-horizontal"></i>캡처 설정</span>
+                <small>인원 수 조정</small>
+              </summary>
+              <label class="inline-setting-row">
+                조활비 인원 수
+                <input id="coupangPeopleInput" type="number" min="1" value="3" />
+              </label>
+            </details>
             <input id="settingsSupplyLimitInput" type="hidden" value="50000" />
           </section>
 
           <section class="panel">
             <div class="panel-heading">
-              <h2>쿠팡 처리 결과</h2>
+              <h2><i class="ph ph-check-square-offset"></i>쿠팡 처리 결과</h2>
             </div>
             <div class="result-grid">
               <div>
@@ -216,61 +315,77 @@
                 <ul id="coupangErrorList"></ul>
               </div>
             </div>
-          </section>
+            </section>
+          </div>
 
-          <section class="panel ledger-panel">
+          <section class="panel ledger-panel ledger-history-panel">
             <div class="panel-heading">
-              <h2>조활비·소모품비 현황</h2>
-              <button class="secondary-button compact" id="refreshLedgerButton" type="button">새로고침</button>
+              <h2><i class="ph ph-clock-counter-clockwise"></i>사용 이력</h2>
+              <button class="primary-button compact" id="toggleManualExpenseButton" type="button" aria-expanded="false" aria-controls="manualExpenseCard"><i class="ph ph-plus"></i>수기 내역 추가</button>
             </div>
-            <div class="form-grid">
-              <label>
-                조회 월
-                <input id="ledgerMonthInput" type="month" />
-              </label>
-              <label>
-                수기 등록 날짜
-                <input id="manualExpenseDateInput" type="date" />
-              </label>
-              <label>
-                구분
-                <select id="manualExpenseTypeSelect">
-                  <option value="welfare">조활비</option>
-                  <option value="supply">소모품비</option>
-                  <option value="review">확인필요</option>
-                </select>
-              </label>
-              <label>
-                금액
-                <input id="manualExpenseAmountInput" type="number" min="0" step="1" placeholder="예: 12000" />
-              </label>
-              <label>
-                품목/메모
-                <input id="manualExpenseMemoInput" type="text" placeholder="예: 커피, 종이컵" />
-              </label>
-              <label>
-                증빙 경로/메모
-                <input id="manualExpensePathInput" type="text" placeholder="선택 입력" />
-              </label>
-            </div>
-            <div class="actions">
-              <button class="primary-button" id="addManualExpenseButton" type="button">수기 내역 추가</button>
-            </div>
-            <div class="ledger-summary-grid" id="ledgerSummaryGrid"></div>
-            <div class="ledger-history">
-              <h3>이력</h3>
-              <ul id="ledgerEntryList"></ul>
+            <details class="manual-expense-card" id="manualExpenseCard">
+              <summary>
+                <span><i class="ph ph-plus-circle"></i>수기 내역 추가</span>
+                <i class="ph ph-caret-up"></i>
+              </summary>
+              <div class="manual-expense-grid">
+                <label>
+                  날짜
+                  <input id="manualExpenseDateInput" type="date" />
+                </label>
+                <label>
+                  구분
+                  <select id="manualExpenseTypeSelect">
+                    <option value="welfare">조활비</option>
+                    <option value="supply">소모품비</option>
+                    <option value="review">확인필요</option>
+                  </select>
+                </label>
+                <label>
+                  금액
+                  <input id="manualExpenseAmountInput" type="number" min="0" step="1" placeholder="예: 12,000" />
+                </label>
+                <label>
+                  품목
+                  <input id="manualExpenseMemoInput" type="text" placeholder="예: 커피, 종이컵, 포스트잇 등" />
+                </label>
+                <label>
+                  증빙/메모
+                  <input id="manualExpensePathInput" type="text" placeholder="예: 영수증 이미지, 메모 등" />
+                </label>
+                <button class="primary-button" id="addManualExpenseButton" type="button"><i class="ph ph-plus"></i>추가</button>
+              </div>
+            </details>
+            <div class="ledger-table-wrap">
+              <table class="ledger-history-table">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>구분</th>
+                    <th>금액</th>
+                    <th>품목</th>
+                    <th>증빙/메모</th>
+                    <th>관리</th>
+                  </tr>
+                </thead>
+                <tbody id="ledgerEntryList"></tbody>
+              </table>
             </div>
           </section>
         </section>
 
-        <section class="page" data-page-panel="excel-export">
+        <section class="page workspace-page excel-workspace" data-page-panel="excel-export">
+          <div class="summary-grid workspace-summary-grid excel-summary-grid">
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-credit-card"></i></span><div class="stat-copy"><span>저장된 카드 내역</span><strong id="excelCardCount">0건</strong><small>현재 분류 대상</small></div></article>
+            <article class="stat-card"><span class="stat-icon review"><i class="ph ph-warning-circle"></i></span><div class="stat-copy"><span>확인 필요</span><strong id="excelReviewCount">0건</strong><small>항목 선택 필요</small></div></article>
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-rows"></i></span><div class="stat-copy"><span>생성 결과</span><strong id="excelOutputCount">0행</strong><small>3개 엑셀 시트 합계</small></div></article>
+          </div>
           <section class="panel corporate-card-panel">
             <div class="panel-heading">
-              <h2>법인카드 엑셀 내역</h2>
+              <h2><i class="ph ph-file-xls"></i>법인카드 엑셀 내역</h2>
               <div class="actions">
-                <button class="secondary-button" id="refreshCorporateCardButton" type="button">저장 내역 새로고침</button>
-                <button class="primary-button" id="parseCorporateCardButton" type="button">내역 읽기</button>
+                <button class="secondary-button" id="refreshCorporateCardButton" type="button"><i class="ph ph-arrows-clockwise"></i>저장 내역 새로고침</button>
+                <button class="primary-button" id="parseCorporateCardButton" type="button"><i class="ph ph-magnifying-glass"></i>내역 읽기</button>
               </div>
             </div>
             <p class="folder-label">카드사 엑셀 표를 복사해 붙여넣으면 일자, 가맹점, 업종, 최종금액을 추출합니다. 각 내역의 입력 시트를 선택하면 아래 엑셀 붙여넣기 결과에 자동 반영됩니다.</p>
@@ -283,7 +398,7 @@
 
           <section class="panel corporate-card-list-panel">
             <div class="panel-heading">
-              <h2>법인카드 사용 내역 분류</h2>
+              <h2><i class="ph ph-funnel"></i>법인카드 사용 내역 분류</h2>
               <span class="folder-label" id="corporateCardSummary">저장된 내역 0건</span>
             </div>
             <div class="corporate-card-table-wrap">
@@ -310,8 +425,8 @@
 
           <section class="panel">
             <div class="panel-heading">
-              <h2>엑셀 작성 입력</h2>
-              <button class="primary-button" id="refreshExcelPasteButton" type="button">붙여넣기 결과 만들기</button>
+              <h2><i class="ph ph-pencil-line"></i>엑셀 작성 입력</h2>
+              <button class="primary-button" id="refreshExcelPasteButton" type="button"><i class="ph ph-magic-wand"></i>붙여넣기 결과 만들기</button>
             </div>
             <p class="folder-label">회사 엑셀의 반복 입력 행 첫 번째 사용일자 셀을 선택한 뒤, 아래 결과를 복사해 붙여넣습니다.</p>
             <div class="content-grid">
@@ -335,61 +450,72 @@
 
           <section class="panel paste-output">
             <div class="panel-heading">
-              <h2>일반출장</h2>
-              <button class="secondary-button" type="button" data-copy-paste-target="generalTravelPasteOutput">복사</button>
+              <h2><i class="ph ph-train"></i>일반출장</h2>
+              <button class="secondary-button" type="button" data-copy-paste-target="generalTravelPasteOutput"><i class="ph ph-copy"></i>복사</button>
             </div>
             <textarea id="generalTravelPasteOutput" readonly spellcheck="false"></textarea>
           </section>
 
           <section class="panel paste-output">
             <div class="panel-heading">
-              <h2>현장매장방문출장</h2>
-              <button class="secondary-button" type="button" data-copy-paste-target="fieldVisitPasteOutput">복사</button>
+              <h2><i class="ph ph-storefront"></i>현장매장방문출장</h2>
+              <button class="secondary-button" type="button" data-copy-paste-target="fieldVisitPasteOutput"><i class="ph ph-copy"></i>복사</button>
             </div>
             <textarea id="fieldVisitPasteOutput" readonly spellcheck="false"></textarea>
           </section>
 
           <section class="panel paste-output">
             <div class="panel-heading">
-              <h2>법인카드사용</h2>
-              <button class="secondary-button" type="button" data-copy-paste-target="corporateCardPasteOutput">복사</button>
+              <h2><i class="ph ph-credit-card"></i>법인카드사용</h2>
+              <button class="secondary-button" type="button" data-copy-paste-target="corporateCardPasteOutput"><i class="ph ph-copy"></i>복사</button>
             </div>
             <textarea id="corporateCardPasteOutput" readonly spellcheck="false"></textarea>
           </section>
 
         </section>
 
-        <section class="page" data-page-panel="ppt">
-          <section class="panel">
+        <section class="page workspace-page ppt-workspace" data-page-panel="ppt">
+          <div class="summary-grid workspace-summary-grid ppt-summary-grid">
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-calendar-check"></i></span><div class="stat-copy"><span>증빙 날짜</span><strong id="pptProofDateCount">0일</strong><small>미리보기 기준</small></div></article>
+            <article class="stat-card"><span class="stat-icon review"><i class="ph ph-warning-circle"></i></span><div class="stat-copy"><span>필수 증빙 누락</span><strong id="pptMissingCount">0건</strong><small>거리·유가 확인</small></div></article>
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-presentation-chart"></i></span><div class="stat-copy"><span>생성 준비</span><strong id="pptReadyState">확인 전</strong><small>미리보기 후 생성</small></div></article>
+          </div>
+          <section class="panel ppt-create-panel">
             <div class="panel-heading">
-              <h2>지출결의서 PPT 생성</h2>
+              <h2><i class="ph ph-presentation-chart"></i>지출결의서 PPT 생성</h2>
               <div class="actions">
-                <button class="secondary-button" id="previewPptButton" type="button">PPT 미리보기</button>
-                <button class="primary-button" id="createPptButton" type="button">PPT 생성</button>
+                <button class="secondary-button" id="previewPptButton" type="button"><i class="ph ph-eye"></i>PPT 미리보기</button>
+                <button class="primary-button" id="createPptButton" type="button"><i class="ph ph-file-ppt"></i>PPT 생성</button>
               </div>
             </div>
             <p class="folder-label" id="pptStatus">선택한 저장 폴더에서 기준 연도/월의 캡처와 추가증빙을 찾아 PPT를 만듭니다.</p>
           </section>
           <section class="panel">
             <div class="panel-heading">
-              <h2>생성 예정 PPT 내용</h2>
+              <h2><i class="ph ph-images-square"></i>생성 예정 PPT 내용</h2>
             </div>
             <div class="proof-preview-grid" id="pptPreviewList"></div>
           </section>
         </section>
 
-        <section class="page" data-page-panel="storage">
+        <section class="page workspace-page storage-workspace" data-page-panel="storage">
+          <div class="summary-grid workspace-summary-grid storage-summary-grid">
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-images"></i></span><div class="stat-copy"><span>저장 이미지</span><strong id="storageFileCount">0개</strong><small>선택 월 기준</small></div></article>
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-calendar-dots"></i></span><div class="stat-copy"><span>자료 날짜</span><strong id="storageDateCount">0일</strong><small>날짜별 묶음</small></div></article>
+            <article class="stat-card"><span class="stat-icon"><i class="ph ph-broom"></i></span><div class="stat-copy"><span>정리 상태</span><strong id="storageCleanupState">확인 전</strong><small>중복·폴더 관리</small></div></article>
+          </div>
           <section class="panel">
             <div class="panel-heading">
-              <h2>저장자료</h2>
-              <button class="secondary-button" id="refreshStorageButton" type="button">저장자료 미리보기</button>
+              <h2><i class="ph ph-folder-open"></i>저장자료</h2>
+              <button class="secondary-button" id="refreshStorageButton" type="button"><i class="ph ph-arrows-clockwise"></i>저장자료 미리보기</button>
             </div>
             <p class="folder-label">선택한 저장 폴더의 기준 월 자료를 이미지 기준으로 확인합니다.</p>
             <div class="proof-preview-grid" id="storagePreviewList"></div>
           </section>
+          <div class="storage-admin-grid">
           <section class="panel storage-tools">
             <div class="panel-heading">
-              <h2>저장자료 정리</h2>
+              <h2><i class="ph ph-broom"></i>저장자료 정리</h2>
               <div class="actions">
                 <button class="secondary-button" id="scanDuplicatesButton" type="button">중복 파일 찾기</button>
                 <button class="secondary-button" id="deleteDuplicatesButton" type="button" disabled>중복 후보 삭제</button>
@@ -418,13 +544,14 @@
           </section>
           <section class="panel storage-settings-panel">
             <div class="panel-heading">
-              <h2>작업별 저장소 설정</h2>
-              <button class="secondary-button" id="saveStorageSettingsButton" type="button">저장소 설정 저장</button>
+              <h2><i class="ph ph-sliders-horizontal"></i>작업별 저장소 설정</h2>
+              <button class="secondary-button" id="saveStorageSettingsButton" type="button"><i class="ph ph-floppy-disk"></i>저장소 설정 저장</button>
             </div>
             <p class="folder-label">비워두면 기본 Google Drive 저장소를 그대로 사용합니다. 필요한 작업만 별도 폴더 경로를 입력해 주세요.</p>
             <div class="storage-settings-grid" id="storageSettingsGrid"></div>
             <ul class="cleanup-list" id="storageSettingsStatus"></ul>
           </section>
+          </div>
         </section>
 
         <input id="settingsStartInput" type="hidden" />
@@ -439,6 +566,6 @@
       </main>
     </div>
 
-    <script type="module" src="./src/travel-proof/travel-proof-app.js"></script>
+    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260625-localhost-overlay-fix"></script>
   </body>
 </html>

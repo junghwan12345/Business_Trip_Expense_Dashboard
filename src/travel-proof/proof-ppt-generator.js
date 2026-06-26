@@ -4,24 +4,29 @@ import { join } from "node:path";
 import { groupProofImagesByDate, titleForProofDate } from "./proof-ppt.js";
 
 const require = createRequire(import.meta.url);
-const bundledNodeModules = join(
-  homedir(),
-  ".cache",
-  "codex-runtimes",
-  "codex-primary-runtime",
-  "dependencies",
-  "node",
-  "node_modules"
-);
-const PptxGenJS = require(join(
-  bundledNodeModules,
-  ".pnpm",
-  "pptxgenjs@4.0.1",
-  "node_modules",
-  "pptxgenjs",
-  "dist",
-  "pptxgen.cjs.js"
-));
+let PptxGenJS;
+try {
+  PptxGenJS = require("pptxgenjs");
+} catch {
+  const bundledNodeModules = join(
+    homedir(),
+    ".cache",
+    "codex-runtimes",
+    "codex-primary-runtime",
+    "dependencies",
+    "node",
+    "node_modules"
+  );
+  PptxGenJS = require(join(
+    bundledNodeModules,
+    ".pnpm",
+    "pptxgenjs@4.0.1",
+    "node_modules",
+    "pptxgenjs",
+    "dist",
+    "pptxgen.cjs.js"
+  ));
+}
 
 export async function buildProofPptxBuffer({ monthKey, images }) {
   const grouped = groupProofImagesByDate(images, monthKey);

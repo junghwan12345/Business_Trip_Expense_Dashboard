@@ -14,6 +14,16 @@ node_modules/
 # 빌드 산출물
 dist/
 .dist/
+release/
+private/
+
+# 출장 증빙 실행/QA 산출물
+travel-proof-output/
+workspace-*.png
+coupang-*.png
+distance-*.png
+prototype-*.png
+*.pptx
 
 # OS 파일
 .DS_Store
