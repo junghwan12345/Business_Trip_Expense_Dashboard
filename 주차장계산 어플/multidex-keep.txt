@@ -1,0 +1,3 @@
+com/parkingfloor/app/geofence/BootReceiver.class
+com/parkingfloor/app/widget/ParkingWidgetProvider.class
+com/parkingfloor/app/widget/QuickFloorWidgetProvider.class

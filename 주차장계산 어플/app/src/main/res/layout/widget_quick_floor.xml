@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/quick_widget_bg"
+    android:padding="14dp">
+
+    <LinearLayout android:id="@+id/chipRow1"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <TextView android:id="@+id/chip0" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="1층" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip1" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="B1" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip2" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="B2" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip3" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="B3" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip4" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="B4" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip5" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_edit" android:text="+" android:textColor="#6A4CF0" android:textStyle="bold" android:textSize="17sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="26sp" android:autoSizeStepGranularity="1sp" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/chipRow2"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal" android:layout_marginTop="7dp" android:visibility="gone">
+
+        <TextView android:id="@+id/chip6" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip7" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip8" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip9" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip10" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:layout_marginEnd="7dp" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+        <TextView android:id="@+id/chip11" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/chip_bg_normal" android:text="" android:textColor="#3C2E7A" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="11sp" android:autoSizeMaxTextSize="22sp" android:autoSizeStepGranularity="1sp" />
+    </LinearLayout>
+</LinearLayout>
