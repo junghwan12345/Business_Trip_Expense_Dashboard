@@ -3,6 +3,7 @@
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -113,6 +115,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.parkingfloor.app.data.CalibrationStore
 import com.parkingfloor.app.data.CarBtDevice
@@ -123,6 +127,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 // ---- 컬러 팔레트 ----
 private val Purple        = Color(0xFF7A5CFF)
@@ -172,6 +177,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = AndroidColor.rgb(250, 249, 254)
+        window.navigationBarColor = AndroidColor.WHITE
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
         requestRuntimePermissions()
         // 설치/업데이트/강제종료 후, 자동감지가 켜져 있었으면 서비스를 되살린다
         viewModel.resurrectAutoIfNeeded()
@@ -181,7 +193,7 @@ class MainActivity : ComponentActivity() {
                 when (setupDone) {
                     true -> MainScreen(viewModel)
                     false -> OnboardingScreen(viewModel)
-                    null -> Surface(modifier = Modifier.fillMaxSize(), color = BgColor) {}
+                    null -> Surface(modifier = Modifier.fillMaxSize().systemBarsPadding(), color = BgColor) {}
                 }
             }
         }
@@ -231,7 +243,7 @@ private fun OnboardingScreen(viewModel: MainViewModel) {
         onDispose { }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = BgColor) {
+    Surface(modifier = Modifier.fillMaxSize().systemBarsPadding(), color = BgColor) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -531,6 +543,8 @@ fun MainScreen(viewModel: MainViewModel) {
     val pressure         by viewModel.currentPressure.collectAsStateWithLifecycle()
     val baseline         by viewModel.baselinePressure.collectAsStateWithLifecycle()
     val hPaPerFloor      by viewModel.hPaPerFloor.collectAsStateWithLifecycle()
+    val entryCorrection  by viewModel.entryPressureCorrection.collectAsStateWithLifecycle()
+    val floorSamples     by viewModel.floorPressureSamples.collectAsStateWithLifecycle()
     val isTracking       by viewModel.isTracking.collectAsStateWithLifecycle()
     val trackingStatus   by viewModel.trackingStatus.collectAsStateWithLifecycle()
     val lastParked       by viewModel.lastParked.collectAsStateWithLifecycle()
@@ -583,7 +597,7 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 
     if (!viewModel.sensorAvailable) {
-        Surface(modifier = Modifier.fillMaxSize(), color = BgColor) {
+        Surface(modifier = Modifier.fillMaxSize().systemBarsPadding(), color = BgColor) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(24.dp)) {
                 ErrorCard("이 기기에는 기압 센서가 없어 동작할 수 없습니다 😢")
             }
@@ -592,6 +606,7 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 
     Scaffold(
+        modifier = Modifier.systemBarsPadding(),
         containerColor = BgColor,
         bottomBar = {
             NavigationBar(containerColor = Color.White) {
@@ -711,6 +726,9 @@ fun MainScreen(viewModel: MainViewModel) {
             pressure = pressure,
             baseline = baseline,
             hPaPerFloor = hPaPerFloor,
+            entryCorrection = entryCorrection,
+            floorSamples = floorSamples,
+            garageBelow = garageBelow,
             plateauSeconds = plateauSeconds,
             floorIndex = floorIndex,
             onDismiss = { showDiagDialog = false }
@@ -1409,7 +1427,7 @@ private fun SettingsContent(
                 Text("300 m", color = TextSecondary, fontSize = 12.sp)
             }
             Spacer(Modifier.height(6.dp))
-            Text("우리집 근처에 들어오면 자동 감지가 시작돼요.", color = TextSecondary, fontSize = 11.sp)
+            Text("이 반경은 집 근처 확인용이고, 자동 감지는 15m 안에서 시작돼요.", color = TextSecondary, fontSize = 11.sp)
         }
         Spacer(Modifier.height(12.dp))
 
@@ -1652,12 +1670,21 @@ private fun DiagnosticsDialog(
     pressure: Float,
     baseline: Float?,
     hPaPerFloor: Float,
+    entryCorrection: Float,
+    floorSamples: Map<Int, Float>,
+    garageBelow: Int,
     plateauSeconds: Int,
     floorIndex: Int?,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = BgColor) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = true
+        )
+    ) {
+        Surface(modifier = Modifier.fillMaxSize().systemBarsPadding(), color = BgColor) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1687,10 +1714,13 @@ private fun DiagnosticsDialog(
                     pressure = pressure,
                     baseline = baseline,
                     hPaPerFloor = hPaPerFloor,
+                    entryCorrection = entryCorrection,
+                    floorSamples = floorSamples,
+                    garageBelow = garageBelow,
                     plateauSeconds = plateauSeconds,
                     floorIndex = floorIndex
                 )
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(72.dp))
             }
         }
     }
@@ -1715,6 +1745,9 @@ private fun DiagnosticsContent(
     pressure: Float,
     baseline: Float?,
     hPaPerFloor: Float,
+    entryCorrection: Float,
+    floorSamples: Map<Int, Float>,
+    garageBelow: Int,
     plateauSeconds: Int,
     floorIndex: Int?
 ) {
@@ -1751,15 +1784,30 @@ private fun DiagnosticsContent(
         title = "실시간 추정",
         subtitle = "현재 센서값으로 계산한 층입니다."
     ) {
+        val displayFloor = track?.floor ?: floorIndex
         Text(
-            floorIndex?.let { floorIndexToLabel(it) } ?: "기준점 미설정",
+            displayFloor?.let { floorIndexToLabel(it) } ?: "기준점 미설정",
             fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Purple
         )
         Spacer(Modifier.height(10.dp))
         DebugRow("현재 기압", if (pressure.isNaN()) "측정 중" else "%.2f hPa".format(pressure))
-        DebugRow("기준(P0)", baseline?.let { "%.2f hPa".format(it) } ?: "미설정")
-        baseline?.let { b ->
+        val activeBaseline = track?.baseline ?: baseline
+        val tableBaseline = activeBaseline ?: if (!pressure.isNaN()) pressure + entryCorrection else null
+        DebugRow("기준(P0)", activeBaseline?.let { "%.2f hPa".format(it) } ?: "미설정")
+        DebugRow("진입 보정", "%+.2f hPa".format(entryCorrection))
+        activeBaseline?.let { b ->
             if (!pressure.isNaN()) DebugRow("상승폭", "%+.2f hPa".format(pressure - b))
+        }
+        if (tableBaseline != null) {
+            Spacer(Modifier.height(12.dp))
+            FloorPressureTable(
+                baseline = tableBaseline,
+                currentPressure = pressure,
+                hPaPerFloor = hPaPerFloor,
+                floorSamples = floorSamples,
+                garageBelow = garageBelow,
+                onRecord = { viewModel.recordFloorPressure(it) }
+            )
         }
     }
 
@@ -1791,6 +1839,114 @@ private fun DiagnosticsContent(
                 inactiveTickColor = Color.Transparent
             )
         )
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = PurpleLight, thickness = 1.dp)
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("주차장 진입 보정", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("%+.2f hPa".format(entryCorrection), fontSize = 20.sp, color = Purple, fontWeight = FontWeight.ExtraBold)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = { viewModel.updateEntryPressureCorrection(entryCorrection - 0.05f) },
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.5.dp, Purple)
+            ) {
+                Text("- 0.05", color = Purple, fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = { viewModel.updateEntryPressureCorrection(0f) },
+                modifier = Modifier.height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PurpleLight),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text("0", color = Purple, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = { viewModel.updateEntryPressureCorrection(entryCorrection + 0.05f) },
+                modifier = Modifier.weight(1f).height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.5.dp, Purple)
+            ) {
+                Text("+ 0.05", color = Purple, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloorPressureTable(
+    baseline: Float,
+    currentPressure: Float,
+    hPaPerFloor: Float,
+    floorSamples: Map<Int, Float>,
+    garageBelow: Int,
+    onRecord: (Int) -> Unit
+) {
+    Column {
+        Text("층별 기압 기록", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        Spacer(Modifier.height(8.dp))
+        val rows = (0..garageBelow.coerceIn(1, CalibrationStore.MAX_GARAGE_FLOORS)).toList()
+        rows.forEach { floor ->
+            val corrected = baseline + floor * hPaPerFloor
+            val actual = floorSamples[floor]
+            FloorPressureRow(
+                label = if (floor == 0) "지상 1층" else "지하 ${floor}층",
+                correctedPressure = corrected,
+                actualPressure = actual,
+                currentPressure = currentPressure,
+                onRecord = { onRecord(floor) }
+            )
+            if (floor != rows.last()) HorizontalDivider(color = PurpleLight.copy(alpha = 0.8f), thickness = 1.dp)
+        }
+    }
+}
+
+@Composable
+private fun FloorPressureRow(
+    label: String,
+    correctedPressure: Float,
+    actualPressure: Float?,
+    currentPressure: Float,
+    onRecord: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+        Text(label, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("보정기압 %.2f hPa".format(correctedPressure), fontSize = 12.sp, color = TextSecondary)
+                Text(
+                    actualPressure?.let {
+                        "실제기압 %.2f hPa · 차이 %+.2f".format(it, it - correctedPressure)
+                    } ?: "실제기압 미기록",
+                    fontSize = 12.sp,
+                    color = if (actualPressure != null && abs(actualPressure - correctedPressure) >= 0.10f) OrangeColor else TextSecondary,
+                    fontWeight = if (actualPressure != null) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onRecord,
+                enabled = !currentPressure.isNaN(),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Purple),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text("기록", color = Purple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 

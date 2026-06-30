@@ -59,12 +59,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _hPaPerFloor = MutableStateFlow(CalibrationStore.DEFAULT_HPA_PER_FLOOR)
     val hPaPerFloor: StateFlow<Float> = _hPaPerFloor.asStateFlow()
 
+    private val _entryPressureCorrection = MutableStateFlow(CalibrationStore.DEFAULT_ENTRY_PRESSURE_CORRECTION)
+    val entryPressureCorrection: StateFlow<Float> = _entryPressureCorrection.asStateFlow()
+
     /** 앱(프로세스) 시작 시점에 우리집 위치가 이미 등록돼 있었는지 스냅샷. null=확인 전. */
     private val _hadHomeAtStart = MutableStateFlow<Boolean?>(null)
 
     init {
         viewModelScope.launch {
             _hPaPerFloor.value = calibrationStore.hPaPerFloor.first()
+        }
+        viewModelScope.launch {
+            calibrationStore.entryPressureCorrection.collect {
+                _entryPressureCorrection.value = it
+            }
         }
         viewModelScope.launch {
             _hadHomeAtStart.value = calibrationStore.homeLocation.first() != null
@@ -87,6 +95,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun updateHPaPerFloor(value: Float) {
         _hPaPerFloor.value = value
         viewModelScope.launch { calibrationStore.setHPaPerFloor(value) }
+    }
+
+    fun updateEntryPressureCorrection(value: Float) {
+        _entryPressureCorrection.value = value
+        viewModelScope.launch { calibrationStore.setEntryPressureCorrection(value) }
+    }
+
+    val floorPressureSamples: StateFlow<Map<Int, Float>> =
+        calibrationStore.floorPressureSamples.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
+        )
+
+    fun recordFloorPressure(floorIndex: Int) {
+        val p = currentPressure.value
+        if (p.isNaN()) return
+        viewModelScope.launch { calibrationStore.saveFloorPressureSample(floorIndex, p) }
     }
 
     /**

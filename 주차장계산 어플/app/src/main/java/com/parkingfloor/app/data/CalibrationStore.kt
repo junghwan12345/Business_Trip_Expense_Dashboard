@@ -25,6 +25,8 @@ class CalibrationStore(private val context: Context) {
 
     companion object {
         private val KEY_HPA_PER_FLOOR = floatPreferencesKey("hpa_per_floor")
+        private val KEY_ENTRY_PRESSURE_CORRECTION = floatPreferencesKey("entry_pressure_correction")
+        private val KEY_FLOOR_PRESSURE_SAMPLES = stringPreferencesKey("floor_pressure_samples")
 
         // 마지막으로 자동 감지된 주차 결과
         private val KEY_LAST_FLOOR = intPreferencesKey("last_parked_floor")
@@ -67,7 +69,8 @@ class CalibrationStore(private val context: Context) {
         const val DEFAULT_GARAGE_BELOW = 5
         const val MAX_GARAGE_FLOORS = 5
 
-        const val DEFAULT_HPA_PER_FLOOR = 0.40f
+        const val DEFAULT_HPA_PER_FLOOR = 0.45f
+        const val DEFAULT_ENTRY_PRESSURE_CORRECTION = 0.00f
         const val DEFAULT_HOME_RADIUS = 150f
         const val DEFAULT_PLATEAU_SEC = 12
         const val NO_FLOOR = -999
@@ -89,6 +92,54 @@ class CalibrationStore(private val context: Context) {
     suspend fun setHPaPerFloor(value: Float) {
         context.dataStore.edit { prefs ->
             prefs[KEY_HPA_PER_FLOOR] = value
+        }
+    }
+
+    val entryPressureCorrection: Flow<Float> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ENTRY_PRESSURE_CORRECTION] ?: DEFAULT_ENTRY_PRESSURE_CORRECTION
+    }
+
+    suspend fun setEntryPressureCorrection(value: Float) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ENTRY_PRESSURE_CORRECTION] = value
+        }
+    }
+
+    suspend fun entryPressureCorrectionOnce(): Float = entryPressureCorrection.first()
+
+    val floorPressureSamples: Flow<Map<Int, Float>> = context.dataStore.data.map { prefs ->
+        prefs[KEY_FLOOR_PRESSURE_SAMPLES]
+            ?.split(",")
+            ?.mapNotNull { entry ->
+                val parts = entry.split(":")
+                if (parts.size != 2) return@mapNotNull null
+                val floor = parts[0].toIntOrNull() ?: return@mapNotNull null
+                val pressure = parts[1].toFloatOrNull() ?: return@mapNotNull null
+                floor to pressure
+            }
+            ?.toMap()
+            ?: emptyMap()
+    }
+
+    suspend fun saveFloorPressureSample(floorIndex: Int, pressure: Float) {
+        if (pressure.isNaN()) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[KEY_FLOOR_PRESSURE_SAMPLES]
+                ?.split(",")
+                ?.mapNotNull { entry ->
+                    val parts = entry.split(":")
+                    if (parts.size != 2) return@mapNotNull null
+                    val floor = parts[0].toIntOrNull() ?: return@mapNotNull null
+                    val savedPressure = parts[1].toFloatOrNull() ?: return@mapNotNull null
+                    floor to savedPressure
+                }
+                ?.toMap()
+                ?.toMutableMap()
+                ?: mutableMapOf()
+            current[floorIndex] = pressure
+            prefs[KEY_FLOOR_PRESSURE_SAMPLES] = current.entries
+                .sortedBy { it.key }
+                .joinToString(",") { "${it.key}:${it.value}" }
         }
     }
 

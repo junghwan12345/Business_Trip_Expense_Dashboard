@@ -68,6 +68,7 @@ class ParkingTrackingService : Service() {
         private const val EXIT_CONFIRM_MS = 30_000L  // 30초 이상 지속돼야 출차 확정
         private const val MAX_ACCURACY_M = 100f      // 오차 100m 초과 측정은 판정 제외
         private const val SAME_FLOOR_DUPLICATE_MS = 3 * 60_000L
+        private const val AUTO_START_RADIUS_M = 15f
 
         /** 추적(ACTIVE) 중인지 */
         val isTracking = MutableStateFlow(false)
@@ -107,6 +108,7 @@ class ParkingTrackingService : Service() {
     @Volatile private var parkedThisVisit = false
     // 위치 폴링/업데이트가 갱신하는 "집 범위 안" 캐시 — BT연결 시 lastKnown이 null이어도 판단 가능
     @Volatile private var lastInsideHome = false
+    @Volatile private var lastInsideAutoStart = false
     // '여유 반경 밖'에 진입한 시각 (출차 확정 타이머용). -1 = 여유 반경 안.
     @Volatile private var farOutsideSince = -1L
     // 이번 집 방문의 지상1층 기준 기압(P0). 범위 안에서 재주차해도 유지, 범위 벗어나면 초기화.
@@ -204,6 +206,7 @@ class ParkingTrackingService : Service() {
 
         trackingJob = scope.launch {
             val hPaPerFloor = store.hPaPerFloor.first()
+            val entryCorrection = store.entryPressureCorrectionOnce()
             carBtAddress = store.carBtAddressOnce()
             refreshCarBtConnected()
             val plateauMs = store.plateauSecondsOnce() * 1000L
@@ -250,15 +253,15 @@ class ParkingTrackingService : Service() {
                 .onEach { p ->
                     if (baseline.isNaN()) {
                         // 재주차면 직전 층 기준으로 지상 기압을 역산(날씨 변동·지하 출발 보정)
-                        baseline = if (isRepark) p - reparkFloor * hPaPerFloor else p
+                        baseline = if (isRepark) p - reparkFloor * hPaPerFloor else p + entryCorrection
                         visitBaseline = baseline
                         scope.launch { store.setVisitBaseline(baseline) }  // 영구 저장(프로세스 사망 대비)
                         statusText.value = "기준 설정됨 · 하강 감지 대기"
                         Log.d(
                             TAG,
                             "기준 설정: mode=${if (isRepark) "repark" else "fresh"} " +
-                                "pressure=%.2f baseline=%.2f reparkFloor=%d hPaPerFloor=%.3f"
-                                    .format(p, baseline, reparkFloor, hPaPerFloor)
+                                "pressure=%.2f baseline=%.2f reparkFloor=%d hPaPerFloor=%.3f entryCorrection=%+.2f"
+                                    .format(p, baseline, reparkFloor, hPaPerFloor, entryCorrection)
                         )
                     }
                     window.addLast(p)
@@ -425,7 +428,9 @@ class ParkingTrackingService : Service() {
         Location.distanceBetween(loc.latitude, loc.longitude, homeLat, homeLng, out)
         val dist = out[0]
         val inside = dist <= homeRadius
+        val insideAutoStart = dist <= AUTO_START_RADIUS_M
         lastInsideHome = inside
+        lastInsideAutoStart = insideAutoStart
 
         if (inside) {
             // 집 반경 안 → 이탈 타이머 리셋, 필요 시 추적 시작
@@ -434,7 +439,9 @@ class ParkingTrackingService : Service() {
             if (carBtAddress == null) {
                 statusText.value = "차량 블루투스 등록 필요"
             }
-            if (!parkedThisVisit && !isTracking.value && inCar) {
+            val reparkReady = parkedThisVisit || !visitBaseline.isNaN()
+            val canStartTracking = if (reparkReady) true else insideAutoStart
+            if (!isTracking.value && inCar && canStartTracking) {
                 Log.d(TAG, "자동: 반경 진입(%.0fm, inCar=%b) → 추적 시작".format(dist, inCar))
                 startActiveTracking()
             }
@@ -488,6 +495,14 @@ class ParkingTrackingService : Service() {
         val out = FloatArray(1)
         Location.distanceBetween(loc.latitude, loc.longitude, homeLat, homeLng, out)
         return out[0] <= homeRadius
+    }
+
+    private fun isInsideAutoStartRadius(): Boolean {
+        val loc = bestLastKnown() ?: return false
+        if (homeRadius <= 0f && homeLat == 0.0) return false
+        val out = FloatArray(1)
+        Location.distanceBetween(loc.latitude, loc.longitude, homeLat, homeLng, out)
+        return out[0] <= AUTO_START_RADIUS_M
     }
 
     @android.annotation.SuppressLint("MissingPermission")
@@ -568,7 +583,9 @@ class ParkingTrackingService : Service() {
                         // 집 범위 '안'에서 시동 켬 = 차 옮김(재주차) → 추적 재시작.
                         // 범위 '밖'(출퇴근)이면 시작하지 않음.
                         // 캐시(lastInsideHome) 우선 — 콜드스타트로 lastKnown이 없어도 판단 가능.
-                        if (!isTracking.value && (lastInsideHome || isInsideHome())) {
+                        val reparkReady = parkedThisVisit || !visitBaseline.isNaN()
+                        val insideForStart = if (reparkReady) (lastInsideHome || isInsideHome()) else (lastInsideAutoStart || isInsideAutoStartRadius())
+                        if (!isTracking.value && insideForStart) {
                             Log.d(TAG, "집 범위 안 시동 ON → 재주차 추적 시작")
                             startActiveTracking()
                         } else {
