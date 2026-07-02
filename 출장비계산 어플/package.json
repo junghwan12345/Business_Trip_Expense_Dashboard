@@ -36,6 +36,10 @@
       {
         "from": "build/update-public-key.pem",
         "to": "update-public-key.pem"
+      },
+      {
+        "from": "build/expense-template.b64",
+        "to": "expense-template.b64"
       }
     ],
     "win": {

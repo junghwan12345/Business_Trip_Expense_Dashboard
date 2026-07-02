@@ -54,7 +54,6 @@ const GENERAL_TRAVEL_STORAGE_KEY = "travel-proof:general-travel-entries";
 const FUEL_ROWS_STORAGE_KEY = "travel-proof:fuel-rows";
 const TOLL_ROWS_STORAGE_KEY = "travel-proof:toll-rows";
 const APP_SETTINGS_STORAGE_KEY = "travel-proof:app-settings";
-const DEFAULT_DIRECT_EXCEL_PATH = "G:\\내 드라이브\\출장비증빙\\출장비 양식.xlsx";
 const FAST_CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("captureMode") !== "legacy";
 const PROTOTYPE_PREVIEW = new URLSearchParams(window.location.search).get("prototype") === "1";
 const PAGE_META = Object.freeze({
@@ -313,9 +312,6 @@ elements.settingsDestinationInput.value = elements.destinationInput.value;
 if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = appSettings.authorName || "";
 elements.coupangPeopleInput.value = appSettings.welfarePeople || elements.coupangPeopleInput.value;
 elements.settingsPeopleInput.value = elements.coupangPeopleInput.value;
-if (elements.directExcelPathInput && !elements.directExcelPathInput.value) {
-  elements.directExcelPathInput.value = DEFAULT_DIRECT_EXCEL_PATH;
-}
 
 elements.previewButton.addEventListener("click", preview);
 elements.chooseFolderButton.addEventListener("click", chooseFolder);
@@ -2677,7 +2673,7 @@ async function handlePasteOutputCopyClick(event) {
 
 async function writeDirectExcelWorkbook() {
   renderExcelPasteOutputs();
-  const sourcePath = elements.directExcelPathInput?.value?.trim() || DEFAULT_DIRECT_EXCEL_PATH;
+  const sourcePath = elements.directExcelPathInput?.value?.trim() || "";
   const monthKey = selectedExcelMonthKey();
   const authorName = elements.settingsAuthorNameInput?.value?.trim() || readAppSettings().authorName || "";
   if (!authorName) {

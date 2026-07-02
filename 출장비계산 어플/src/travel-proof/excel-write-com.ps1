@@ -13,6 +13,10 @@ function Decode-Utf8Base64($value) {
 $FIELD_ITEM_FUEL = Decode-Utf8Base64 "7Jyg66WY64yA"
 $FIELD_ITEM_ACTIVITY = Decode-Utf8Base64 "7Zmc64+Z67mE"
 $FIELD_ITEM_TOLL_PREFIX = Decode-Utf8Base64 "7Ya17ZaJ66OM"
+# 정산월 표기용 한글 (인코딩 안전을 위해 base64로 보관)
+$SETTLEMENT_SUFFIX = Decode-Utf8Base64 "7JuUIOygleyCsOq4iOyVoQ=="  # "월 정산금액"
+$YEAR_SUFFIX = Decode-Utf8Base64 "64WEIA=="                          # "년 "
+$MONTH_SUFFIX = Decode-Utf8Base64 "7JuU"                             # "월"
 
 function ConvertTo-PlainText($value) {
   if ($null -eq $value) { return "" }
@@ -204,6 +208,41 @@ function Write-CorporateRows($sheet, $startRow, $rows) {
   }
 }
 
+# 셀 값만 쓰고 서식(정렬 등)은 그대로 두는 setter. 상단 정산월 표기용.
+function Set-HeaderCellValue($sheet, $row, $column, $value) {
+  $cell = $sheet.Cells.Item($row, $column)
+  $target = $cell
+  try {
+    if ([bool]$cell.MergeCells) { $target = $cell.MergeArea.Cells.Item(1, 1) }
+  } catch {
+    $target = $cell
+  }
+  try {
+    Invoke-ExcelCom { $target.Value = $value } "Header cell value"
+  } catch {
+    Invoke-ExcelCom { $target.Formula = ConvertTo-PlainText $value } "Header cell formula"
+  }
+}
+
+# 정산월을 각 시트 상단에 표기합니다.
+#  시트1 D5 : "{월}월 정산금액" (드롭다운 항목)
+#  시트2 E5 : " {연}년 {월2자리}월" (정산기간)
+#  시트3 E5 : 시트2와 동일 형식
+function Write-SettlementPeriod($workbook, $monthKey) {
+  $text = ConvertTo-PlainText $monthKey
+  if ($text -notmatch '^(20\d{2})-(\d{2})$') { return }
+  $year = $Matches[1]
+  $monthPadded = $Matches[2]
+  $monthNumber = [int]$monthPadded
+
+  $sheet1Value = "$monthNumber$script:SETTLEMENT_SUFFIX"
+  $periodValue = " $year$script:YEAR_SUFFIX$monthPadded$script:MONTH_SUFFIX"
+
+  Set-HeaderCellValue (Get-WorksheetByIndex $workbook 1) 5 4 $sheet1Value
+  Set-HeaderCellValue (Get-WorksheetByIndex $workbook 2) 5 5 $periodValue
+  Set-HeaderCellValue (Get-WorksheetByIndex $workbook 3) 5 5 $periodValue
+}
+
 $excel = $null
 $workbook = $null
 
@@ -226,6 +265,7 @@ try {
   Write-TravelRows (Get-WorksheetByIndex $workbook 2) 21 $payload.generalTravelRows
   Write-FieldVisitRows (Get-WorksheetByIndex $workbook 3) 20 $payload.fieldVisitRows
   Write-CorporateRows (Get-WorksheetByIndex $workbook 4) 16 $payload.corporateCardRows
+  Write-SettlementPeriod $workbook $payload.monthKey
 
   $desktop = [Environment]::GetFolderPath("Desktop")
   $outputFileName = ConvertTo-PlainText $payload.outputFileName

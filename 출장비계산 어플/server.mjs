@@ -527,15 +527,64 @@ async function handleCorporateCardLedgerDelete(request, response) {
   }
 }
 
+// 내장 양식은 두 형태로 존재할 수 있습니다.
+//  - expense-template.b64 : base64 텍스트 (프라이버시i DRM 자동 암호화를 피하려고 텍스트로 보관)
+//  - expense-template.xlsx: 예전 방식(암호화 걱정 없는 환경) 또는 관리자 지정 원본
+const EXCEL_TEMPLATE_BASENAMES = ["expense-template.b64", "expense-template.xlsx"];
+
+// 지출결의서 양식 경로를 결정합니다.
+// 1) 요청에 담긴 경로가 실제로 존재하면 그대로 사용 (관리자 본인 Drive 양식 등)
+// 2) 없으면 앱에 내장된 양식(설치본/개발본)을 사용해 다른 직원도 바로 작성할 수 있게 합니다.
+function resolveExcelTemplatePath(requestedPath = "") {
+  const candidates = [];
+  const requested = String(requestedPath || "").trim();
+  if (requested) candidates.push(requested);
+  if (process.env.TRAVEL_PROOF_EXCEL_TEMPLATE) {
+    candidates.push(process.env.TRAVEL_PROOF_EXCEL_TEMPLATE);
+  }
+  const searchRoots = [];
+  if (process.resourcesPath) searchRoots.push(process.resourcesPath);
+  if (process.env.TRAVEL_PROOF_APP_ROOT) searchRoots.push(join(process.env.TRAVEL_PROOF_APP_ROOT, "build"));
+  searchRoots.push(join(root, "build"));
+  for (const searchRoot of searchRoots) {
+    for (const name of EXCEL_TEMPLATE_BASENAMES) {
+      candidates.push(join(searchRoot, name));
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return "";
+}
+
+// base64 내장 양식이면 실제 xlsx 임시 파일로 복원해 경로를 돌려줍니다.
+// 반환된 경로가 templatePath와 다르면 사용 후 삭제해야 하는 임시 파일입니다.
+async function materializeExcelTemplate(templatePath) {
+  if (!/\.b64$/i.test(templatePath)) return templatePath;
+  const base64 = (await readFile(templatePath, "utf8")).replace(/\s+/g, "");
+  const buffer = Buffer.from(base64, "base64");
+  if (buffer.subarray(0, 4).toString("hex") !== "504b0304") {
+    throw new Error("내장 양식 복원에 실패했습니다. 양식 파일이 손상되었을 수 있습니다.");
+  }
+  await mkdir(personalDataRoot, { recursive: true });
+  const outputPath = join(personalDataRoot, `expense-template-${Date.now()}-${Math.random().toString(16).slice(2)}.xlsx`);
+  await writeFile(outputPath, buffer);
+  return outputPath;
+}
+
 async function handleExcelWrite(request, response) {
+  let tempTemplatePath = "";
   try {
     const body = await readJsonBody(request, { maxBytes: 1_000_000 });
-    const sourcePath = String(body.sourcePath || "").trim();
-    if (!sourcePath) {
-      throw new Error("작성할 엑셀 파일 경로가 필요합니다.");
+    const resolvedTemplate = resolveExcelTemplatePath(body.sourcePath);
+    if (!resolvedTemplate) {
+      throw new Error("지출결의서 양식 파일을 찾지 못했습니다. 앱에 내장된 양식이 없거나 지정한 경로가 올바르지 않습니다.");
     }
+    const sourcePath = await materializeExcelTemplate(resolvedTemplate);
+    if (sourcePath !== resolvedTemplate) tempTemplatePath = sourcePath;
     const payload = {
       sourcePath,
+      monthKey: String(body.monthKey || "").trim(),
       outputFileName: excelWriteOutputFileName(body.monthKey, body.authorName),
       generalTravelRows: normalizeExcelWriteRows(body.generalTravelRows),
       fieldVisitRows: normalizeExcelWriteRows(body.fieldVisitRows),
@@ -545,6 +594,8 @@ async function handleExcelWrite(request, response) {
     sendJson(response, { ok: true, result });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
+  } finally {
+    if (tempTemplatePath) await unlink(tempTemplatePath).catch(() => {});
   }
 }
 

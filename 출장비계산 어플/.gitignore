@@ -1,0 +1,8 @@
+# 회사 지출결의서 양식은 저장소에 올리지 않고 빌드 PC에만 둡니다.
+# (앱 빌드 시 base64 변환본이 extraResources로 설치파일 안에 내장됩니다.)
+# base64로 두는 이유: 프라이버시i(DRM)가 xlsx 원본을 자동 암호화하는 것을 피하기 위함.
+/build/expense-template.b64
+/build/expense-template.xlsx
+
+# 빌드 산출물
+/dist/
