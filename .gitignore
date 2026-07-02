@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local-only project kept outside the business trip expense GitHub repo
 /주차장계산 어플/
+
+# Local experiment / old dashboard artifacts
+/.superpowers/
