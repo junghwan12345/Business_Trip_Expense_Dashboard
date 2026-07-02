@@ -71,15 +71,15 @@ const PAGE_META = Object.freeze({
     help: "인원과 캡처 날짜를 입력한 뒤 결과를 확인하고 필요한 내역을 확정하세요."
   },
   "excel-export": {
-    title: "엑셀 작성",
+    title: "지출결의서 Excel 제작",
     icon: "ph-file-xls",
     description: "출장과 법인카드 내역을 회사 엑셀에 붙여넣을 형태로 정리합니다.",
     help: "법인카드 표를 읽고 항목을 분류한 뒤 각 결과 카드에서 복사하세요."
   },
   ppt: {
-    title: "지출결의서 PPT",
+    title: "증빙자료 PPT 제작",
     icon: "ph-presentation-chart",
-    description: "날짜별 증빙을 확인하고 지출결의서 PPT를 생성합니다.",
+    description: "날짜별 증빙을 확인하고 증빙자료 PPT를 제작합니다.",
     help: "먼저 미리보기로 거리·유가와 추가증빙을 확인한 뒤 PPT를 생성하세요."
   },
   storage: {
@@ -114,7 +114,7 @@ const STORAGE_SETTING_GROUPS = [
   },
   {
     key: "ppt",
-    label: "지출결의서 PPT",
+    label: "증빙자료 PPT 제작",
     keys: ["ppt"]
   }
 ];
@@ -167,6 +167,7 @@ const elements = {
   retryFailedButton: document.querySelector("#retryFailedButton"),
   createPptButton: document.querySelector("#createPptButton"),
   previewPptButton: document.querySelector("#previewPptButton"),
+  pptMonthInput: document.querySelector("#pptMonthInput"),
   refreshStorageButton: document.querySelector("#refreshStorageButton"),
   runCoupangButton: document.querySelector("#runCoupangButton"),
   loadSampleButton: document.querySelector("#loadSampleButton"),
@@ -222,7 +223,6 @@ const elements = {
   ledgerEntryList: document.querySelector("#ledgerEntryList"),
   corporateCardInput: document.querySelector("#corporateCardInput"),
   parseCorporateCardButton: document.querySelector("#parseCorporateCardButton"),
-  refreshCorporateCardButton: document.querySelector("#refreshCorporateCardButton"),
   corporateCardErrorList: document.querySelector("#corporateCardErrorList"),
   corporateCardEntryList: document.querySelector("#corporateCardEntryList"),
   corporateCardEntryMore: document.querySelector("#corporateCardEntryMore"),
@@ -296,6 +296,7 @@ elements.updateStatusLabel = document.querySelector("#updateStatusLabel");
 const appSettings = readAppSettings();
 elements.yearInput.value = String(now.getFullYear());
 elements.monthInput.value = String(now.getMonth() + 1);
+if (elements.pptMonthInput) elements.pptMonthInput.value = todayInputValue(now).slice(0, 7);
 elements.startInput.value = appSettings.defaultStart || "태왕디아너스오페라";
 elements.destinationInput.value = appSettings.defaultDestination || "태왕디아너스오페라";
 elements.manualDateSelect.value = todayInputValue(now);
@@ -336,6 +337,7 @@ document.querySelector("#distanceHelpButton")?.addEventListener("click", (event)
 });
 elements.createPptButton.addEventListener("click", createProofPpt);
 elements.previewPptButton.addEventListener("click", previewProofPpt);
+elements.pptMonthInput?.addEventListener("change", previewProofPpt);
 elements.refreshStorageButton.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
 elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
@@ -349,7 +351,6 @@ elements.manualExpenseCard?.addEventListener("toggle", () => {
   elements.toggleManualExpenseButton?.setAttribute("aria-expanded", String(elements.manualExpenseCard.open));
 });
 elements.parseCorporateCardButton?.addEventListener("click", parseAndSaveCorporateCardEntries);
-elements.refreshCorporateCardButton?.addEventListener("click", loadCorporateCardLedger);
 elements.corporateCardEntryList?.addEventListener("change", handleCorporateCardTableChange);
 elements.corporateCardEntryList?.addEventListener("focusout", handleCorporateCardMemoBlur);
 elements.corporateCardEntryList?.addEventListener("click", handleCorporateCardTableClick);
@@ -832,7 +833,8 @@ async function refreshAutomaticProofPreviews() {
   await Promise.all([
     renderProofImagePreview(elements.pptPreviewList, {
       emptyMessage: "PPT로 묶을 증빙 이미지를 찾지 못했습니다.",
-      allowDelete: true
+      allowDelete: true,
+      monthKey: selectedPptMonthKey()
     }),
     renderProofImagePreview(elements.storagePreviewList, {
       emptyMessage: "기준 월 저장자료를 찾지 못했습니다."
@@ -1515,7 +1517,7 @@ async function createProofPpt() {
     return;
   }
 
-  const monthKey = resolveSelectedMonthKey();
+  const monthKey = selectedPptMonthKey();
   if (!monthKey) {
     addError("PPT를 만들 기준 연도와 월을 확인해 주세요.");
     return;
@@ -1568,7 +1570,8 @@ async function createProofPpt() {
 async function previewProofPpt() {
   await renderProofImagePreview(elements.pptPreviewList, {
     emptyMessage: "PPT로 묶을 증빙 이미지를 찾지 못했습니다.",
-    allowDelete: true
+    allowDelete: true,
+    monthKey: selectedPptMonthKey()
   });
 }
 
@@ -1788,9 +1791,8 @@ async function readPreviewPayload(payload) {
   }
 }
 
-async function renderProofImagePreview(targetElement, { emptyMessage, allowDelete = false }) {
+async function renderProofImagePreview(targetElement, { emptyMessage, allowDelete = false, monthKey = resolveSelectedMonthKey() }) {
   targetElement.innerHTML = "";
-  const monthKey = resolveSelectedMonthKey();
   if (!monthKey) {
     updateProofWorkspaceSummary(targetElement, []);
     targetElement.innerHTML = `<p class="folder-label">기준 연도와 월을 확인해 주세요.</p>`;
@@ -2000,7 +2002,7 @@ async function deleteProofImages(imageNames) {
 }
 
 async function deleteServerProofImage(imageName) {
-  const monthKey = resolveSelectedMonthKey();
+  const monthKey = selectedPptMonthKey();
   const response = await fetch("/api/travel-proof/proof-image-delete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2013,7 +2015,7 @@ async function deleteServerProofImage(imageName) {
 }
 
 async function deleteBrowserProofImage(imageName) {
-  const monthKey = resolveSelectedMonthKey();
+  const monthKey = selectedPptMonthKey();
   const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
   const parts = String(imageName || "").split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => part === "." || part === "..")) {
@@ -2211,6 +2213,11 @@ function fileToDataUri(file) {
 
 function resolveSelectedMonthKey() {
   return selectedMonthKey(elements.yearInput.value, elements.monthInput.value);
+}
+
+function selectedPptMonthKey() {
+  const value = String(elements.pptMonthInput?.value || "").trim();
+  return /^\d{4}-\d{2}$/.test(value) ? value : resolveSelectedMonthKey();
 }
 
 function todayInputValue(date) {
@@ -2693,7 +2700,7 @@ async function writeDirectExcelWorkbook() {
   if (elements.writeDirectExcelButton) {
     elements.writeDirectExcelButton.disabled = true;
   }
-  renderExcelPasteStatus([`${excelMonthLabel(monthKey)} 출장비 엑셀을 만들고 있습니다. 잠시만 기다려 주세요.`], "success");
+  renderExcelPasteStatus([`${excelMonthLabel(monthKey)} 지출결의서를 만들고 있습니다. 잠시만 기다려 주세요.`], "success");
   try {
     const response = await fetch("/api/travel-proof/excel-write", {
       method: "POST",
@@ -2706,11 +2713,11 @@ async function writeDirectExcelWorkbook() {
     }
     const result = data.result || {};
     renderExcelPasteStatus([
-      `출장비 엑셀 생성 완료: 일반출장 ${result.generalTravelCount || 0}행 · 현장지원 ${result.fieldVisitCount || 0}행 · 조활비/소모품비/기타 ${result.corporateCardCount || 0}행`,
+      `지출결의서 생성 완료: 일반출장 ${result.generalTravelCount || 0}행 · 현장지원 ${result.fieldVisitCount || 0}행 · 조활비/소모품비/기타 ${result.corporateCardCount || 0}행`,
       `저장 위치: ${result.outputPath || "바탕화면"}`
     ], "success");
   } catch (error) {
-    renderExcelPasteStatus([`출장비 엑셀 만들기 실패: ${error.message}`], "error");
+    renderExcelPasteStatus([`지출결의서 만들기 실패: ${error.message}`], "error");
   } finally {
     if (elements.writeDirectExcelButton) {
       elements.writeDirectExcelButton.disabled = false;
@@ -3857,6 +3864,7 @@ function setBusy(isBusy, label = "") {
   elements.runButton.disabled = isBusy || !canRunCapture({ groupCount: state.groups.length, running: state.running });
   elements.createPptButton.disabled = isBusy;
   elements.previewPptButton.disabled = isBusy;
+  if (elements.pptMonthInput) elements.pptMonthInput.disabled = isBusy;
   elements.refreshStorageButton.disabled = isBusy;
   if (elements.scanDuplicatesButton) elements.scanDuplicatesButton.disabled = isBusy;
   if (elements.clearFolderButton) elements.clearFolderButton.disabled = isBusy;
@@ -3865,7 +3873,6 @@ function setBusy(isBusy, label = "") {
   if (elements.refreshLedgerButton) elements.refreshLedgerButton.disabled = isBusy;
   if (elements.addManualExpenseButton) elements.addManualExpenseButton.disabled = isBusy;
   if (elements.parseCorporateCardButton) elements.parseCorporateCardButton.disabled = isBusy;
-  if (elements.refreshCorporateCardButton) elements.refreshCorporateCardButton.disabled = isBusy;
   if (elements.saveStorageSettingsButton) elements.saveStorageSettingsButton.disabled = isBusy;
   elements.manualDateSelect.disabled = isBusy;
   elements.manualWaypoint1Input.disabled = isBusy;

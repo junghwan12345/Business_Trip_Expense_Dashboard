@@ -77,6 +77,15 @@ export function coupangOrderDateKey(value) {
   if (value === null || value === undefined || value === "") {
     return "";
   }
+  const text = String(value).trim();
+  const textDateMatch = text.match(/(20\d{2})\s*(?:년|[.\-/])\s*(\d{1,2})\s*(?:월|[.\-/])\s*(\d{1,2})/);
+  if (textDateMatch && !/[T:]\d{2}/.test(text)) {
+    return [
+      textDateMatch[1],
+      textDateMatch[2].padStart(2, "0"),
+      textDateMatch[3].padStart(2, "0")
+    ].join("-");
+  }
   const date = typeof value === "number"
     ? new Date(value < 100000000000 ? value * 1000 : value)
     : new Date(value);
@@ -96,7 +105,7 @@ export function coupangOrderDateKey(value) {
 export function extractCoupangOrdersFromData(data) {
   const orders = [];
   const seenObjects = new WeakSet();
-  const visit = (value) => {
+  const visit = (value, inheritedDate = "") => {
     if (!value || typeof value !== "object") {
       return;
     }
@@ -107,20 +116,21 @@ export function extractCoupangOrdersFromData(data) {
 
     if (Array.isArray(value)) {
       for (const item of value) {
-        visit(item);
+        visit(item, inheritedDate);
       }
       return;
     }
 
     const orderId = coupangOrderIdFromObject(value);
-    const orderedAt = value.orderedAt || value.orderDate || value.orderedDate || value.createdAt || value.paymentDate;
+    const orderedAt = coupangOrderDateFromObject(value) || inheritedDate;
     const dateKey = coupangOrderDateKey(orderedAt);
     if (orderId && dateKey) {
       orders.push({ orderId, dateKey, orderedAt });
     }
 
+    const childDate = orderedAt || inheritedDate;
     for (const child of Object.values(value)) {
-      visit(child);
+      visit(child, childDate);
     }
   };
 
@@ -137,13 +147,60 @@ export function extractCoupangOrdersFromData(data) {
 }
 
 function coupangOrderIdFromObject(value) {
-  for (const key of ["orderId", "orderNo", "orderNumber", "orderNumberString"]) {
+  for (const key of ["orderId", "orderIdString", "orderNo", "orderNoString", "orderNumber", "orderNumberString", "orderNumberText"]) {
     const candidate = String(value?.[key] || "").trim();
     if (/^\d{6,}$/.test(candidate)) {
       return candidate;
     }
   }
+  for (const key of ["href", "url", "link", "orderDetailUrl", "orderUrl"]) {
+    const match = String(value?.[key] || "").match(/\/order\/(\d{6,})|[?&](?:orderId|orderNo|orderNumber)=(\d{6,})/i);
+    if (match) {
+      return match[1] || match[2] || "";
+    }
+  }
   return "";
+}
+
+function coupangOrderDateFromObject(value) {
+  for (const key of ["orderedAt", "orderDate", "orderedDate", "createdAt", "paymentDate", "paidAt", "orderDateTime", "orderedDateTime"]) {
+    const candidate = value?.[key];
+    if (coupangOrderDateKey(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+export function extractCoupangOrdersFromHtml(html) {
+  const source = String(html || "");
+  const orders = [];
+  const linkPattern = /(?:\/ssr\/desktop\/order\/|\/order\/)(\d{6,})|[?&](?:orderId|orderNo|orderNumber)=(\d{6,})/gi;
+  for (const match of source.matchAll(linkPattern)) {
+    const orderId = match[1] || match[2] || "";
+    const start = Math.max(0, match.index - 2500);
+    const end = Math.min(source.length, match.index + 1200);
+    const nearby = source.slice(start, end)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;|&#160;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/\s+/g, " ");
+    const dateKey = coupangOrderDateKey(nearby);
+    if (orderId && dateKey) {
+      orders.push({ orderId, dateKey, orderedAt: dateKey });
+    }
+  }
+  const seen = new Set();
+  return orders.filter((order) => {
+    const key = `${order.orderId}:${order.dateKey}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 export function parseCoupangReceiptText(text) {

@@ -7,6 +7,7 @@ import {
   coupangOrderDateKey,
   expenseLimitSummary,
   extractCoupangOrdersFromData,
+  extractCoupangOrdersFromHtml,
   parseCoupangCaptureDates,
   parseCoupangReceiptText,
   sanitizeReceiptFilePart
@@ -62,6 +63,40 @@ test("extractCoupangOrdersFromData reads nested order list JSON", () => {
 
   assert.deepEqual(orders.map((order) => order.orderId), ["1234567890", "1234567891"]);
   assert.deepEqual(orders.map((order) => order.dateKey), ["2026-06-29", "2026-06-29"]);
+});
+
+test("extractCoupangOrdersFromData inherits order date from parent blocks", () => {
+  const orders = extractCoupangOrdersFromData({
+    orderDate: "2026. 04. 16",
+    cards: [
+      { title: "사무용품", orderDetailUrl: "https://mc.coupang.com/ssr/desktop/order/7788990011" }
+    ]
+  });
+
+  assert.deepEqual(orders, [
+    {
+      orderId: "7788990011",
+      dateKey: "2026-04-16",
+      orderedAt: "2026. 04. 16"
+    }
+  ]);
+});
+
+test("extractCoupangOrdersFromHtml reads order links from rendered order list", () => {
+  const orders = extractCoupangOrdersFromHtml(`
+    <section class="order-card">
+      <strong>2026년 6월 29일 주문</strong>
+      <a href="/ssr/desktop/order/1234509876">주문 상세보기</a>
+    </section>
+  `);
+
+  assert.deepEqual(orders, [
+    {
+      orderId: "1234509876",
+      dateKey: "2026-06-29",
+      orderedAt: "2026-06-29"
+    }
+  ]);
 });
 
 test("extractCoupangOrdersFromData deduplicates order ids by date", () => {

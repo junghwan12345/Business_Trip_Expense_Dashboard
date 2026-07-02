@@ -6,6 +6,7 @@ import {
   classifyCoupangReceipt,
   coupangOrderDateCandidates,
   extractCoupangOrdersFromData,
+  extractCoupangOrdersFromHtml,
   parseCoupangReceiptText,
   receiptFileBaseName
 } from "./coupang-proof.js";
@@ -1328,20 +1329,24 @@ async function buildCoupangOrderIndex(client, dateKeys = []) {
 async function readCoupangOrdersFromCurrentPage(client) {
   const result = await evaluate(client, `
     (() => {
-      const values = [];
+      const values = { jsonTexts: [], html: document.documentElement.outerHTML || '' };
       const nextData = document.getElementById('__NEXT_DATA__')?.textContent || '';
-      if (nextData) values.push(nextData);
+      if (nextData) values.jsonTexts.push(nextData);
       for (const script of document.querySelectorAll('script[type="application/json"], script:not([src])')) {
         const text = (script.textContent || '').trim();
         if (text && (text.includes('orderId') || text.includes('orderedAt'))) {
-          values.push(text);
+          values.jsonTexts.push(text);
         }
       }
-      return [...new Set(values)].slice(0, 12);
+      values.jsonTexts = [...new Set(values.jsonTexts)].slice(0, 20);
+      return values;
     })()
   `, true).catch(() => null);
-  const scripts = result?.result?.result?.value || [];
-  return extractCoupangOrdersFromJsonTexts(scripts);
+  const payload = result?.result?.result?.value || {};
+  return [
+    ...extractCoupangOrdersFromJsonTexts(payload.jsonTexts || []),
+    ...extractCoupangOrdersFromHtml(payload.html || "")
+  ];
 }
 
 async function readCoupangOrdersFromNetworkEvents(client) {
@@ -1475,6 +1480,10 @@ async function findCoupangOrderIdsForDateOnCurrentPage(client, dateKey) {
 
 async function openCoupangOrderDetailById(client, orderId) {
   await navigate(client, `https://mc.coupang.com/ssr/desktop/order/${encodeURIComponent(orderId)}`);
+  await delay(1200);
+  if (orderId) {
+    return true;
+  }
   await waitFor(
     client,
     "(document.body.innerText || '').includes('주문상세') || (document.body.innerText || '').includes('결제영수증 정보')",
