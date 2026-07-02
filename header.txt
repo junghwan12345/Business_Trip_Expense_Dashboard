@@ -1,5 +1,0 @@
-﻿first 256 bytes hex:
-42 4d 53 20 44 6f 63 75 52 61 79 03 00 00 00 00 24 ed 9f 79 5f 02 ce 7c de f4 22 38 6c 5e 7c d1 6f 1c 47 e3 ca 4d 5a 56 3c 85 e1 91 7f 40 ce 83 db b2 d8 7b 79 4e df ff 7f ed 78 95 17 cc 03 56 8d 72 7d a1 1b d6 ea 0a bc 0f 63 5f 9e b8 e4 cd c8 17 ad 74 d7 8d 1c 4a b6 94 e7 21 c1 4c 55 3c 87 3e 6c 01 ff d9 a9 2a 16 9c 4d 42 3d 4b 50 2f 4b c2 c3 ec ee db 6f 2a f0 2f b2 ef 90 fb 70 f9 a5 07 32 64 30 0e e3 07 48 02 e6 a4 8b aa c0 54 63 24 71 ea 48 c0 a2 35 79 bc 75 ed 41 71 1c 9b 40 64 8c be dc 57 a4 e9 b4 ac 43 44 7a 95 8c bb af 17 95 86 54 f8 fa c3 5c 5b 7c 91 82 22 fe 43 7f ff 19 54 07 53 a9 01 64 b6 ed c2 bc 9a cf 7c 02 29 fc 81 e1 8f cf 85 57 05 52 b0 02 f8 42 e6 29 66 13 95 2f d7 60 34 ba b4 7a aa 15 2e 65 7c ec f8 66 59 e6 bb 7e c1 51 cd e1 6e 2d 01 21 52
-ascii view:
-BMS DocuRay.....$..y_..|.."8l^|.o.G..MZV<....@.....{yN....x....V.r}.......c_.......t...J...!.LU<.>l....*..MB=KP/K.....o*./....p...2d0...H......Tc$q.H..5y.u.Aq..@d...W....CDz.......T...\[|..".C...T.S..d......|.)......W.R...B.)f../.`4..z...e|..fY..~.Q..n-.!R
-zero bytes in first 1MB: 6725 / 1048576

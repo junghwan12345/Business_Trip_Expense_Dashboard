@@ -16,6 +16,7 @@ dist/
 .dist/
 release/
 private/
+정리보류_삭제예정/
 
 # 출장 증빙 실행/QA 산출물
 travel-proof-output/
