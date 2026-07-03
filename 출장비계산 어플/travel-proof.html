@@ -6,7 +6,7 @@
     <title>출장비 증빙 도구</title>
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/regular/style.css" />
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/fill/style.css" />
-    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260630-ledger-other-fix" />
+    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260703-ledger-ui2" />
   </head>
   <body data-active-page="distance">
     <div class="onboarding-overlay" id="onboardingOverlay" hidden>
@@ -252,6 +252,25 @@
                 </div>
                 <small>한도 <b id="welfareLimitCard">150,000원</b></small>
               </div>
+              <div class="allowance-period" aria-label="조활비 조회 기간">
+                <select id="welfareYearInput" aria-label="조활비 조회 연도">
+                  <option value="2023">2023년</option>
+                  <option value="2024">2024년</option>
+                  <option value="2025">2025년</option>
+                  <option value="2026">2026년</option>
+                  <option value="2027">2027년</option>
+                  <option value="2028">2028년</option>
+                  <option value="2029">2029년</option>
+                  <option value="2030">2030년</option>
+                  <option value="2031">2031년</option>
+                </select>
+                <select id="welfareQuarterSelect" aria-label="조활비 조회 분기">
+                  <option value="1">1분기</option>
+                  <option value="2">2분기</option>
+                  <option value="3">3분기</option>
+                  <option value="4">4분기</option>
+                </select>
+              </div>
             </article>
             <article class="allowance-card supply-card">
               <span class="stat-icon"><i class="ph ph-package"></i></span>
@@ -269,6 +288,33 @@
                   <span id="supplyProgressBar"></span>
                 </div>
                 <small>한도 <b id="supplyLimitCard">50,000원</b></small>
+              </div>
+              <div class="allowance-period" aria-label="소모품비 조회 기간">
+                <select id="supplyYearInput" aria-label="소모품비 조회 연도">
+                  <option value="2023">2023년</option>
+                  <option value="2024">2024년</option>
+                  <option value="2025">2025년</option>
+                  <option value="2026">2026년</option>
+                  <option value="2027">2027년</option>
+                  <option value="2028">2028년</option>
+                  <option value="2029">2029년</option>
+                  <option value="2030">2030년</option>
+                  <option value="2031">2031년</option>
+                </select>
+                <select id="supplyMonthSelect" aria-label="소모품비 조회 월">
+                  <option value="1">1월</option>
+                  <option value="2">2월</option>
+                  <option value="3">3월</option>
+                  <option value="4">4월</option>
+                  <option value="5">5월</option>
+                  <option value="6">6월</option>
+                  <option value="7">7월</option>
+                  <option value="8">8월</option>
+                  <option value="9">9월</option>
+                  <option value="10">10월</option>
+                  <option value="11">11월</option>
+                  <option value="12">12월</option>
+                </select>
               </div>
             </article>
           </div>
@@ -310,57 +356,9 @@
             <div class="panel-heading">
               <h2><i class="ph ph-clock-counter-clockwise"></i>사용 이력</h2>
               <div class="ledger-heading-actions">
-                <select class="ledger-heading-filter" id="ledgerTypeFilter" aria-label="사용 이력 구분 필터">
-                  <option value="all">전체</option>
-                  <option value="welfare">조활비</option>
-                  <option value="supply">소모품비</option>
-                  <option value="other">기타</option>
-                  <option value="review">확인필요</option>
-                </select>
+                <div class="ledger-filter-chips" id="ledgerFilterChips" role="tablist" aria-label="사용 이력 구분 필터"></div>
                 <button class="primary-button compact" id="toggleManualExpenseButton" type="button" aria-expanded="false" aria-controls="manualExpenseCard"><i class="ph ph-plus"></i>수기 내역 추가</button>
               </div>
-            </div>
-            <div class="ledger-period-toolbar" aria-label="사용 이력 조회 기간">
-              <fieldset>
-                <legend>조활비</legend>
-                <label>
-                  년
-                  <input id="welfareYearInput" type="number" min="2020" max="2099" step="1" />
-                </label>
-                <label>
-                  분기
-                  <select id="welfareQuarterSelect">
-                    <option value="1">1분기</option>
-                    <option value="2">2분기</option>
-                    <option value="3">3분기</option>
-                    <option value="4">4분기</option>
-                  </select>
-                </label>
-              </fieldset>
-              <fieldset>
-                <legend>소모품비</legend>
-                <label>
-                  년
-                  <input id="supplyYearInput" type="number" min="2020" max="2099" step="1" />
-                </label>
-                <label>
-                  월
-                  <select id="supplyMonthSelect">
-                    <option value="1">1월</option>
-                    <option value="2">2월</option>
-                    <option value="3">3월</option>
-                    <option value="4">4월</option>
-                    <option value="5">5월</option>
-                    <option value="6">6월</option>
-                    <option value="7">7월</option>
-                    <option value="8">8월</option>
-                    <option value="9">9월</option>
-                    <option value="10">10월</option>
-                    <option value="11">11월</option>
-                    <option value="12">12월</option>
-                  </select>
-                </label>
-              </fieldset>
             </div>
             <details class="manual-expense-card" id="manualExpenseCard">
               <summary>
@@ -399,9 +397,9 @@
               <table class="ledger-history-table">
                 <thead>
                   <tr>
-                    <th>날짜</th>
-                    <th>구분</th>
-                    <th>금액</th>
+                    <th class="sortable-th" data-sort-table="ledger" data-sort-key="dateKey" role="button" tabindex="0">날짜 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+                    <th class="sortable-th" data-sort-table="ledger" data-sort-key="type" role="button" tabindex="0">구분 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+                    <th class="sortable-th" data-sort-table="ledger" data-sort-key="amountWon" role="button" tabindex="0">금액 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
                     <th>품목</th>
                     <th>증빙/메모</th>
                     <th>관리</th>
@@ -476,15 +474,15 @@
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>일자</th>
+                    <th class="sortable-th" data-sort-table="corporateCard" data-sort-key="dateKey" role="button" tabindex="0">일자 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
                     <th>가맹점</th>
                     <th>업종</th>
-                    <th>최종금액</th>
+                    <th class="sortable-th" data-sort-table="corporateCard" data-sort-key="amountWon" role="button" tabindex="0">최종금액 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
                     <th>입력 시트</th>
                     <th>엑셀항목</th>
                     <th>적요</th>
                     <th>비고</th>
-                    <th>상태</th>
+                    <th class="sortable-th" data-sort-table="corporateCard" data-sort-key="status" role="button" tabindex="0">상태 <span class="sort-indicator" aria-hidden="true">⇅</span></th>
                     <th>관리</th>
                   </tr>
                 </thead>
@@ -628,6 +626,6 @@
       </main>
     </div>
 
-    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260630-ledger-other-fix"></script>
+    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260703-ledger-ui2"></script>
   </body>
 </html>

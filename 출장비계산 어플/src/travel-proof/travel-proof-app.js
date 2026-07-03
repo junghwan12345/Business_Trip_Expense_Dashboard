@@ -121,6 +121,15 @@ let autoPreviewTimer = null;
 let autoProofPreviewTimer = null;
 const EXCEL_FIELD_PREVIEW_LIMIT = 5;
 const CORPORATE_CARD_PREVIEW_LIMIT = 6;
+// 헤더 정렬·필터 칩 관련 모듈 상수 (초기 렌더 전에 초기화되도록 최상단에 선언)
+const EXCEL_PREVIEW_SORT_PREFIX = "excelPreview:";
+const LEDGER_TYPE_SORT_RANK = { welfare: 0, supply: 1, other: 2, review: 3 };
+const LEDGER_FILTER_CHIPS = [
+  ["all", "전체"],
+  ["welfare", "조활비"],
+  ["supply", "소모품비"],
+  ["other", "기타"]
+];
 
 const state = {
   groups: [],
@@ -136,6 +145,14 @@ const state = {
   excelPreviewCollapsed: {},
   fieldVisitPreviewExpanded: false,
   corporateCardListExpanded: false,
+  corporateCardSort: { key: "dateKey", direction: "asc" },
+  ledgerSort: { key: "dateKey", direction: "asc" },
+  excelPreviewSort: {
+    general: { key: "dateKey", direction: "asc" },
+    field: { key: "dateKey", direction: "asc" },
+    corporate: { key: "dateKey", direction: "asc" }
+  },
+  ledgerTypeFilter: "all",
   storageSettings: {},
   effectiveStorageRoots: {},
   personalStorage: { configured: false, driveOnline: false, pendingFiles: 0 },
@@ -248,7 +265,7 @@ const elements = {
   excelPasteStatus: document.querySelector("#excelPasteStatus"),
   pptPreviewList: document.querySelector("#pptPreviewList"),
   storagePreviewList: document.querySelector("#storagePreviewList"),
-  ledgerTypeFilter: document.querySelector("#ledgerTypeFilter"),
+  ledgerFilterChips: document.querySelector("#ledgerFilterChips"),
   settingsStartInput: document.querySelector("#settingsStartInput"),
   settingsDestinationInput: document.querySelector("#settingsDestinationInput"),
   settingsAuthorNameInput: document.querySelector("#settingsAuthorNameInput"),
@@ -359,6 +376,8 @@ document.addEventListener("click", handleExcelPreviewClick);
 document.addEventListener("click", handleCollapsiblePanelClick);
 document.addEventListener("keydown", handleCollapsiblePanelKeydown);
 document.addEventListener("click", handlePasteOutputCopyClick);
+document.addEventListener("click", handleSortHeaderClick);
+document.addEventListener("keydown", handleSortHeaderKeydown);
 elements.saveStorageSettingsButton?.addEventListener("click", saveStorageSettings);
 elements.addManualWaypointButton.addEventListener("click", addManualWaypointGroup);
 elements.loadSampleButton.addEventListener("click", loadSample);
@@ -378,7 +397,7 @@ elements.coupangPeopleInput.addEventListener("input", () => {
   renderLedger();
 });
 elements.ledgerMonthInput?.addEventListener("input", renderLedger);
-elements.ledgerTypeFilter?.addEventListener("change", renderLedger);
+elements.ledgerFilterChips?.addEventListener("click", handleLedgerFilterChipClick);
 for (const periodInput of [
   elements.welfareYearInput,
   elements.welfareQuarterSelect,
@@ -2509,6 +2528,8 @@ function renderExcelPreviewCards({ generalRows = [], fieldVisitRows = [], corpor
 function renderExcelPreviewCard({ key, rows, badgeElement, bodyElement, moreElement = null, emptyMessage, limit = 0 }) {
   const previewRows = (rows || []).map(toExcelPreviewRow);
   const totalWon = previewRows.reduce((sum, row) => sum + row.amountWon, 0);
+  const sortState = state.excelPreviewSort[key];
+  const sortedRows = sortState ? sortEntriesForDisplay(previewRows, sortState) : previewRows;
   const isCollapsed = Boolean(state.excelPreviewCollapsed[key]);
   const card = document.querySelector(`[data-excel-preview-card="${key}"]`);
   const toggle = document.querySelector(`[data-excel-card-toggle="${key}"]`);
@@ -2533,8 +2554,11 @@ function renderExcelPreviewCard({ key, rows, badgeElement, bodyElement, moreElem
     if (moreElement) moreElement.innerHTML = "";
     return;
   }
-  const visibleRows = limit && !state.fieldVisitPreviewExpanded ? previewRows.slice(0, limit) : previewRows;
-  bodyElement.innerHTML = renderExcelPreviewTable(visibleRows);
+  const visibleRows = limit && !state.fieldVisitPreviewExpanded ? sortedRows.slice(0, limit) : sortedRows;
+  bodyElement.innerHTML = renderExcelPreviewTable(visibleRows, key);
+  if (sortState) {
+    applySortIndicators(`${EXCEL_PREVIEW_SORT_PREFIX}${key}`, sortState);
+  }
   if (!moreElement) {
     return;
   }
@@ -2548,7 +2572,11 @@ function renderExcelPreviewCard({ key, rows, badgeElement, bodyElement, moreElem
   moreElement.innerHTML = `<button class="excel-preview-more-button" type="button" data-field-preview-more>${escapeHtml(label)} <i class="ph ${icon}"></i></button>`;
 }
 
-function renderExcelPreviewTable(rows) {
+function renderExcelPreviewTable(rows, cardKey = "") {
+  const sortTable = cardKey ? `${EXCEL_PREVIEW_SORT_PREFIX}${cardKey}` : "";
+  const sortableHead = (label, sortKey) => sortTable
+    ? `<th class="sortable-th" data-sort-table="${sortTable}" data-sort-key="${sortKey}" role="button" tabindex="0">${label} <span class="sort-indicator" aria-hidden="true">⇅</span></th>`
+    : `<th>${label}</th>`;
   return `
     <div class="excel-preview-table-wrap">
       <table class="excel-preview-table">
@@ -2561,10 +2589,10 @@ function renderExcelPreviewTable(rows) {
         </colgroup>
         <thead>
           <tr>
-            <th>날짜</th>
-            <th>구분</th>
+            ${sortableHead("날짜", "dateKey")}
+            ${sortableHead("구분", "category")}
             <th>사용처</th>
-            <th>금액</th>
+            ${sortableHead("금액", "amountWon")}
             <th>내용/비고</th>
           </tr>
         </thead>
@@ -2972,20 +3000,122 @@ function effectiveLedgerEntries(entries = state.ledgerEntries) {
   );
 }
 
+function corporateCardStatusSortRank(entry) {
+  if (entry.status === "excluded") return 2;
+  if (entry.status === "confirmed") return 1;
+  return 0;
+}
+
+function compareSortableEntries(a, b, key) {
+  if (key === "amountWon") {
+    return (Number(a.amountWon) || 0) - (Number(b.amountWon) || 0);
+  }
+  if (key === "status") {
+    return corporateCardStatusSortRank(a) - corporateCardStatusSortRank(b);
+  }
+  if (key === "type") {
+    return (LEDGER_TYPE_SORT_RANK[a.type] ?? 99) - (LEDGER_TYPE_SORT_RANK[b.type] ?? 99);
+  }
+  return String(a[key] || "").localeCompare(String(b[key] || ""));
+}
+
+// 헤더 클릭 정렬용 공통 정렬 함수. 1차 기준이 같으면 날짜·이름으로 보조 정렬.
+function sortEntriesForDisplay(entries, sort) {
+  const direction = sort?.direction === "desc" ? -1 : 1;
+  return [...entries].sort((a, b) => {
+    const primary = compareSortableEntries(a, b, sort?.key || "dateKey") * direction;
+    if (primary !== 0) {
+      return primary;
+    }
+    return String(a.dateKey || "").localeCompare(String(b.dateKey || "")) ||
+      String(a.merchantName || a.type || "").localeCompare(String(b.merchantName || b.type || ""));
+  });
+}
+
+// 정렬 가능한 헤더의 위/아래 표시(⇅ ▲ ▼)를 현재 정렬 상태에 맞춰 갱신합니다.
+function applySortIndicators(tableName, sort) {
+  for (const th of document.querySelectorAll(`[data-sort-table="${tableName}"]`)) {
+    const indicator = th.querySelector(".sort-indicator");
+    if (!indicator) {
+      continue;
+    }
+    if (th.dataset.sortKey === sort.key) {
+      indicator.textContent = sort.direction === "desc" ? "▼" : "▲";
+      indicator.classList.add("is-active");
+      th.setAttribute("aria-sort", sort.direction === "desc" ? "descending" : "ascending");
+    } else {
+      indicator.textContent = "⇅";
+      indicator.classList.remove("is-active");
+      th.removeAttribute("aria-sort");
+    }
+  }
+}
+
+function sortStateForTable(tableName) {
+  if (tableName === "corporateCard") {
+    return state.corporateCardSort;
+  }
+  if (tableName === "ledger") {
+    return state.ledgerSort;
+  }
+  if (tableName?.startsWith(EXCEL_PREVIEW_SORT_PREFIX)) {
+    return state.excelPreviewSort[tableName.slice(EXCEL_PREVIEW_SORT_PREFIX.length)] || null;
+  }
+  return null;
+}
+
+function rerenderSortedTable(tableName) {
+  if (tableName === "corporateCard") {
+    renderCorporateCardEntries();
+  } else if (tableName === "ledger") {
+    renderLedger();
+  } else if (tableName?.startsWith(EXCEL_PREVIEW_SORT_PREFIX)) {
+    renderExcelPreviewCardsFromState();
+  }
+}
+
+function handleSortHeaderClick(event) {
+  const th = event.target.closest("[data-sort-key][data-sort-table]");
+  if (!th) {
+    return;
+  }
+  const tableName = th.dataset.sortTable;
+  const sortState = sortStateForTable(tableName);
+  if (!sortState) {
+    return;
+  }
+  if (sortState.key === th.dataset.sortKey) {
+    sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+  } else {
+    sortState.key = th.dataset.sortKey;
+    sortState.direction = "asc";
+  }
+  rerenderSortedTable(tableName);
+}
+
+function handleSortHeaderKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  if (!event.target.closest?.("[data-sort-key][data-sort-table]")) {
+    return;
+  }
+  event.preventDefault();
+  handleSortHeaderClick(event);
+}
+
 function renderCorporateCardEntries() {
   if (!elements.corporateCardEntryList) {
     return;
   }
+  applySortIndicators("corporateCard", state.corporateCardSort);
   elements.corporateCardEntryList.innerHTML = "";
   if (elements.corporateCardEntryMore) {
     elements.corporateCardEntryMore.innerHTML = "";
   }
   const monthKey = selectedExcelMonthKey();
   const allEntries = [...state.corporateCardEntries];
-  const entries = filterRowsByMonth(allEntries, monthKey).sort((left, right) =>
-    String(right.dateKey).localeCompare(String(left.dateKey)) ||
-    String(left.merchantName).localeCompare(String(right.merchantName))
-  );
+  const entries = sortEntriesForDisplay(filterRowsByMonth(allEntries, monthKey), state.corporateCardSort);
   const reviewCount = entries.filter((entry) =>
     entry.status === "review" ||
     (entry.targetSheet !== "excluded" && entry.status !== "excluded" && entry.category !== "excluded" && !entry.expenseItem)
@@ -3376,20 +3506,59 @@ function periodMonthLabel(monthKey) {
   return `${Number(String(monthKey || "").slice(5, 7)) || now.getMonth() + 1}월`;
 }
 
-function visibleLedgerEntries(periods) {
+// 선택한 조회 기간에 해당하는 사용 이력(구분 필터 적용 전, 중복 제거)
+function periodLedgerEntries(periods) {
   const monthKey = periods.supply.monthKey;
   const quarter = periods.welfare;
   const selectedYears = new Set([String(quarter.year), String(periods.supply.year)]);
-  const typeFilter = elements.ledgerTypeFilter?.value || "all";
   return [...new Map(effectiveLedgerEntries()
     .filter((entry) =>
       (entry.type === "supply" && entry.dateKey?.startsWith(`${monthKey}-`)) ||
       (entry.type === "welfare" && entry.dateKey >= quarter.start && entry.dateKey <= quarter.end) ||
       (["other", "review"].includes(entry.type) && selectedYears.has(String(entry.dateKey || "").slice(0, 4)))
     )
-    .filter((entry) => typeFilter === "all" || entry.type === typeFilter)
-    .map((entry) => [entry.id, entry])).values()]
-    .sort((left, right) => String(right.dateKey).localeCompare(String(left.dateKey)));
+    .map((entry) => [entry.id, entry])).values()];
+}
+
+function visibleLedgerEntries(periods) {
+  const typeFilter = state.ledgerTypeFilter || "all";
+  const filtered = periodLedgerEntries(periods)
+    .filter((entry) => typeFilter === "all" || entry.type === typeFilter);
+  return sortEntriesForDisplay(filtered, state.ledgerSort);
+}
+
+// 사용 이력 구분 필터 칩(전체/조활비/소모품비/기타 + 확인필요)을 건수와 함께 렌더링합니다.
+function renderLedgerFilterChips(periods) {
+  if (!elements.ledgerFilterChips) {
+    return;
+  }
+  const entries = periodLedgerEntries(periods);
+  const counts = { all: entries.length };
+  for (const entry of entries) {
+    counts[entry.type] = (counts[entry.type] || 0) + 1;
+  }
+  const chipDefs = [...LEDGER_FILTER_CHIPS];
+  if ((counts.review || 0) > 0 || state.ledgerTypeFilter === "review") {
+    chipDefs.push(["review", "확인필요"]);
+  }
+  // 현재 필터가 목록에 없으면(건수가 0이 되어 사라진 경우) 전체로 되돌립니다.
+  if (!chipDefs.some(([value]) => value === state.ledgerTypeFilter)) {
+    state.ledgerTypeFilter = "all";
+  }
+  elements.ledgerFilterChips.innerHTML = chipDefs.map(([value, label]) => {
+    const count = value === "all" ? counts.all : (counts[value] || 0);
+    const isActive = (state.ledgerTypeFilter || "all") === value;
+    return `<button type="button" class="ledger-filter-chip type-${value}${isActive ? " is-active" : ""}" data-ledger-filter="${value}" role="tab" aria-selected="${isActive}">${label} <span class="chip-count">${count}</span></button>`;
+  }).join("");
+}
+
+function handleLedgerFilterChipClick(event) {
+  const chip = event.target.closest("[data-ledger-filter]");
+  if (!chip) {
+    return;
+  }
+  state.ledgerTypeFilter = chip.dataset.ledgerFilter;
+  renderLedger();
 }
 
 function ledgerTypeOptions(selectedType) {
@@ -3404,7 +3573,9 @@ function ledgerTypeOptions(selectedType) {
 
 function renderLedger() {
   if (!elements.ledgerEntryList) return;
+  applySortIndicators("ledger", state.ledgerSort);
   const periods = selectedLedgerPeriods();
+  renderLedgerFilterChips(periods);
   const monthKey = periods.supply.monthKey;
   const quarter = periods.welfare;
   const ledgerEntries = effectiveLedgerEntries();
@@ -3449,7 +3620,7 @@ function renderLedger() {
     item.innerHTML = `
       <td>${escapeHtml(entry.dateKey || "-")}</td>
       <td>
-        <select class="ledger-type-select" data-ledger-field="type" data-ledger-id="${escapeAttribute(entry.id)}">
+        <select class="ledger-type-select ledger-type-${escapeAttribute(entry.type)}" data-ledger-field="type" data-ledger-id="${escapeAttribute(entry.id)}">
           ${ledgerTypeOptions(entry.type)}
         </select>
       </td>

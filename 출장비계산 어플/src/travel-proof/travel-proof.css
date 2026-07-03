@@ -3389,6 +3389,7 @@ body:not([data-active-page="distance"]) .distance-header-actions {
 }
 
 .allowance-card {
+  position: relative;
   display: grid;
   grid-template-columns: 56px minmax(180px, 0.72fr) minmax(230px, 1fr);
   gap: 16px;
@@ -3396,6 +3397,7 @@ body:not([data-active-page="distance"]) .distance-header-actions {
   min-height: 142px;
   height: 100%;
   padding: var(--coupang-card-padding);
+  padding-top: 52px;
   border: 1px solid #dfe3eb;
   border-radius: var(--coupang-radius);
   background:
@@ -4726,4 +4728,152 @@ body[data-active-page="distance"] .app-main {
   .settings-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 요약 카드 상단의 조회 기간 드롭다운 */
+.allowance-period {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.allowance-period select {
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid #dfe3eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #33405c;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.allowance-period select:hover {
+  border-color: #b9c4d8;
+}
+
+.allowance-period select:focus {
+  border-color: var(--capture-purple);
+  outline: 2px solid rgba(108, 53, 232, 0.16);
+  outline-offset: 1px;
+}
+
+.supply-card .allowance-period select:focus {
+  border-color: #17936d;
+  outline-color: rgba(23, 147, 109, 0.18);
+}
+
+/* 사용 이력 구분 필터 칩(탭) */
+.ledger-filter-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ledger-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #e2e5ee;
+  border-radius: 999px;
+  background: #f5f6fa;
+  color: #55617c;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.ledger-filter-chip:hover {
+  border-color: #cdd3e0;
+}
+
+.ledger-filter-chip .chip-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 100, 124, 0.14);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.ledger-filter-chip.is-active {
+  border-color: transparent;
+  background: var(--capture-purple);
+  color: #fff;
+}
+
+.ledger-filter-chip.is-active .chip-count {
+  background: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+
+/* 사용 이력 테이블: 구분 select를 태그형으로 */
+.ledger-type-select {
+  min-height: 30px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: center;
+  text-align-last: center;
+}
+
+.ledger-type-select.ledger-type-welfare {
+  background: #efeaff;
+  border-color: #ddd2fb;
+  color: #5a3fd6;
+}
+
+.ledger-type-select.ledger-type-supply {
+  background: #e6f7ef;
+  border-color: #c7ead9;
+  color: #148060;
+}
+
+.ledger-type-select.ledger-type-other {
+  background: #fff6da;
+  border-color: #f0e2b2;
+  color: #9a6a06;
+}
+
+.ledger-type-select.ledger-type-review {
+  background: #eef1f6;
+  border-color: #dee3ec;
+  color: #55617c;
+}
+
+/* 클릭 정렬 가능한 표 헤더 */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sortable-th:hover {
+  color: var(--accent);
+}
+
+.sortable-th .sort-indicator {
+  margin-left: 4px;
+  font-size: 0.85em;
+  opacity: 0.4;
+}
+
+.sortable-th .sort-indicator.is-active {
+  opacity: 1;
+  color: var(--accent);
 }
