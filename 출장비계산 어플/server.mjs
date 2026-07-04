@@ -3,6 +3,7 @@ import http from "node:http";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { access, copyFile, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, normalize, resolve } from "node:path";
+import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
 import { normalizeCorporateCardEntry } from "./src/travel-proof/corporate-card.js";
@@ -105,6 +106,16 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/personal-storage/sync" && request.method === "POST") {
     await handlePendingStorageSync(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/select-directory" && request.method === "POST") {
+    await handleSelectDirectory(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/default-storage-path" && request.method === "GET") {
+    sendJson(response, { ok: true, path: defaultStorageFolderPath() });
     return;
   }
 
@@ -241,8 +252,9 @@ async function handlePersonalStorageUpdate(request, response) {
     if (!requestedDriveRoot) throw new Error("본인 Google Drive 폴더를 선택해 주세요.");
     const driveRoot = resolve(requestedDriveRoot);
 
+    await mkdir(driveRoot, { recursive: true }).catch(() => {});
     const selected = await stat(driveRoot);
-    if (!selected.isDirectory()) throw new Error("선택한 Google Drive 경로가 폴더가 아닙니다.");
+    if (!selected.isDirectory()) throw new Error("선택한 저장 폴더 경로가 폴더가 아닙니다.");
     const next = normalizePersonalSettings({
       driveRoot,
       updateRoot: body.updateRoot || personalSettings.updateRoot,
@@ -261,6 +273,36 @@ async function handlePersonalStorageUpdate(request, response) {
     });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+function defaultStorageFolderPath() {
+  return join(homedir(), "Desktop", "자동출장증빙");
+}
+
+async function handleSelectDirectory(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const title = String(body.title || "폴더 선택");
+    const initialPath = String(body.initialPath || "").trim() || dirname(defaultStorageFolderPath());
+    const scriptPath = join(root, "src", "travel-proof", "select-folder.ps1");
+    const { stdout } = await runProcess("powershell.exe", [
+      "-NoProfile",
+      "-STA",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+      "-Title",
+      title,
+      "-OkLabel",
+      "이 폴더 선택",
+      "-InitialPath",
+      initialPath
+    ], { timeoutMs: 300000, timeoutMessage: "폴더 선택 시간이 초과되었습니다." });
+    sendJson(response, { ok: true, path: stdout.trim() });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
   }
 }
 
@@ -654,14 +696,14 @@ async function runExcelWriteAutomation(payload) {
   }
 }
 
-function runProcess(command, args, { timeoutMs = 30000 } = {}) {
+function runProcess(command, args, { timeoutMs = 30000, timeoutMessage = "엑셀 작성 시간이 초과되었습니다." } = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, { windowsHide: true });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error("엑셀 작성 시간이 초과되었습니다."));
+      reject(new Error(timeoutMessage));
     }, timeoutMs);
     child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
@@ -1580,7 +1622,27 @@ export function startServer({ port: requestedPort = port, host: requestedHost = 
   });
 }
 
+function warmUpFolderPicker() {
+  if (process.platform !== "win32") return;
+  try {
+    const scriptPath = join(root, "src", "travel-proof", "select-folder.ps1");
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+      "-WarmupOnly"
+    ], { windowsHide: true, stdio: "ignore" });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // Warmup is best-effort; a cold first pick just recompiles on demand.
+  }
+}
+
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isDirectRun) {
   await startServer();
+  warmUpFolderPicker();
 }

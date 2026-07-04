@@ -7,8 +7,10 @@
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/regular/style.css" />
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/fill/style.css" />
     <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260703-ledger-ui2" />
+    <link rel="stylesheet" href="./src/travel-proof/initial-setup.css?v=20260704-compact" />
   </head>
   <body data-active-page="distance">
+    <div id="initialSetupRoot"></div>
     <div class="onboarding-overlay" id="onboardingOverlay" hidden>
       <section class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
         <p class="eyebrow">처음 한 번만 설정</p>
@@ -603,6 +605,10 @@
                 기본 저장 폴더
                 <button class="secondary-button" id="settingChooseFolderButton" type="button"><i class="ph ph-folder-open"></i>저장 폴더 선택</button>
               </label>
+              <label>
+                초기 설정
+                <button class="secondary-button" id="reopenInitialSetupButton" type="button"><i class="ph ph-sparkle"></i>초기 설정 다시 열기</button>
+              </label>
             </div>
             <p class="folder-label" id="settingsStatus">설정을 바꾸면 관련 금액과 캡처 기준에 바로 반영됩니다.</p>
           </section>
@@ -626,6 +632,6 @@
       </main>
     </div>
 
-    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260703-ledger-ui2"></script>
+    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260704-compact"></script>
   </body>
 </html>

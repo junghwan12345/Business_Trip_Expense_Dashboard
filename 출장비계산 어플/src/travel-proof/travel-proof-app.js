@@ -43,6 +43,7 @@ import {
   selectedMonthKey
 } from "./proof-ppt.js";
 import { buildWeekdayCalendarMonth } from "./korean-business-calendar.js";
+import { initInitialSetup, isInitialSetupCompleted } from "./initial-setup.js";
 
 const now = new Date();
 const PPT_IMAGE_DIRECT_SIZE_LIMIT = 1_200_000;
@@ -453,6 +454,7 @@ loadExpenseLedger();
 loadCorporateCardLedger();
 loadPersonalStorage();
 initializeDesktopBridge();
+initializeInitialSetup();
 
 if (!("showDirectoryPicker" in window) && !window.desktopBridge) {
   elements.browserStatus.textContent = "서버 저장";
@@ -536,6 +538,113 @@ async function initializeDesktopBridge() {
   elements.appVersionLabel.textContent = `버전 ${appInfo.version} · 개인 저장 모드`;
   renderDesktopUpdateStatus(updateStatus);
   window.desktopBridge.onUpdateStatus(renderDesktopUpdateStatus);
+}
+
+async function fetchDefaultStoragePath() {
+  try {
+    const response = await fetch("/api/travel-proof/default-storage-path");
+    const data = await response.json();
+    return data.ok ? data.path || "" : "";
+  } catch {
+    return "";
+  }
+}
+
+async function initializeInitialSetup() {
+  const mount = document.querySelector("#initialSetupRoot");
+  if (!mount) {
+    return;
+  }
+  const settings = readAppSettings();
+  const defaultStoragePath = await fetchDefaultStoragePath();
+  const initialSetup = initInitialSetup({
+    mount,
+    defaults: {
+      userName: settings.authorName || "",
+      branchName: settings.branchName || "",
+      defaultStartLocation: settings.defaultStart || "",
+      defaultEndLocation: settings.defaultDestination || "",
+      teamMemberCount: Number(settings.welfarePeople) || 0,
+      storagePath: settings.storagePath || defaultStoragePath
+    },
+    selectDirectory: async (currentPath) => {
+      if (window.desktopBridge?.selectDirectory) {
+        return window.desktopBridge.selectDirectory({ title: "저장 폴더 선택" });
+      }
+      try {
+        const response = await fetch("/api/travel-proof/select-directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: "저장 폴더 선택", initialPath: currentPath || defaultStoragePath })
+        });
+        const data = await response.json();
+        return data.ok ? data.path || "" : "";
+      } catch {
+        return "";
+      }
+    },
+    onComplete: applyInitialSetupResult
+  });
+  document.querySelector("#reopenInitialSetupButton")?.addEventListener("click", () => initialSetup.open());
+  if (!PROTOTYPE_PREVIEW && !isInitialSetupCompleted()) {
+    initialSetup.open();
+  }
+}
+
+function applyInitialSetupResult(setup) {
+  const previousSettings = readAppSettings();
+  writeAppSettings({
+    ...previousSettings,
+    defaultStart: setup.defaultStartLocation || previousSettings.defaultStart,
+    defaultDestination: setup.defaultEndLocation || previousSettings.defaultDestination,
+    authorName: setup.userName,
+    branchName: setup.branchName,
+    userRole: setup.userRole,
+    gender: setup.gender,
+    storagePath: setup.storagePath,
+    welfarePeople: setup.userRole === "manager" ? String(setup.teamMemberCount) : previousSettings.welfarePeople
+  });
+  const applied = readAppSettings();
+  elements.startInput.value = applied.defaultStart || elements.startInput.value;
+  elements.destinationInput.value = applied.defaultDestination || elements.destinationInput.value;
+  elements.settingsStartInput.value = elements.startInput.value;
+  elements.settingsDestinationInput.value = elements.destinationInput.value;
+  if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = applied.authorName || "";
+  if (applied.welfarePeople) {
+    elements.coupangPeopleInput.value = applied.welfarePeople;
+    elements.settingsPeopleInput.value = applied.welfarePeople;
+  }
+  renderCoupangLimitSummary();
+  renderLedger();
+  renderExcelPasteOutputs();
+  scheduleAutoPreview();
+  elements.browserStatus.textContent = "초기 설정 완료";
+  connectInitialSetupStorage(setup.storagePath);
+}
+
+async function connectInitialSetupStorage(storagePath) {
+  const path = String(storagePath || "").trim();
+  if (!path || !/^[a-zA-Z]:[\\/]/.test(path)) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/travel-proof/personal-storage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driveRoot: path, monthKey: resolveSelectedMonthKey() })
+    });
+    const data = await response.json();
+    if (!data.ok) {
+      return;
+    }
+    state.personalStorage = data.status;
+    elements.onboardingOverlay.hidden = true;
+    await loadStorageInfo();
+    renderPersonalStorageStatus();
+    updateRunButton();
+  } catch {
+    // 저장 폴더 연결은 선택 사항이므로 실패해도 초기 설정 완료를 막지 않는다.
+  }
 }
 
 function renderDesktopUpdateStatus(status = {}) {
