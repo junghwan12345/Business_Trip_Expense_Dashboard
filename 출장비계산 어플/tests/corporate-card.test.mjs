@@ -107,6 +107,29 @@ test("parseCorporateCardPaste reads KB style billing sheet columns", () => {
   assert.equal(result.entries[1].amountWon, 12600);
 });
 
+test("parseCorporateCardPaste reads public transit card sheet columns", () => {
+  const text = [
+    "승인일\t카드번호\t이용자명\t이용수단\t승차시간\t하차시간\t승차역\t하차역\t노선번호\t승인금액\t결제일",
+    "20260602\t4265-86**-****-8885\t배정환\t지하철\t17:13:06\t17:35\t시청\t대전역\t\t1550\t20260715",
+    "20260602\t4265-86**-****-8885\t배정환\t지하철\t09:40:12\t10:02\t대전역\t시청\t\t1550\t20260715",
+    "20260601\t4265-86**-****-8885\t배정환\t지하철\t09:17:16\t09:41\t대전역\t시청\t\t1550\t20260715"
+  ].join("\n");
+
+  const result = parseCorporateCardPaste(text);
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.entries.length, 3);
+  assert.equal(result.entries[0].dateKey, "2026-06-02");
+  assert.equal(result.entries[0].merchantName, "지하철");
+  assert.equal(result.entries[0].industryName, "대중교통");
+  assert.equal(result.entries[0].amountWon, 1550);
+  assert.equal(result.entries[0].summary, "지하철");
+  assert.equal(result.entries[0].note, "시청 > 대전역");
+  assert.equal(result.entries[0].sourceType, "publicTransit");
+  assert.notEqual(result.entries[0].id, result.entries[1].id);
+  assert.equal(result.entries[1].note, "대전역 > 시청");
+});
+
 test("parseCorporateCardPaste can infer columns when only card rows are pasted", () => {
   const text = [
     "2026-06-17\t대구문구센터\t12,300",

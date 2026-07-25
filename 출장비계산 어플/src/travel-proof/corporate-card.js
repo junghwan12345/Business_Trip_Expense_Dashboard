@@ -48,6 +48,10 @@ const AMOUNT_HEADERS = [
   "청구금액", "청구금액원", "매출금액", "원화금액", "합계", "금액"
 ];
 
+const TRANSIT_MODE_HEADERS = ["이용수단"];
+const TRANSIT_START_HEADERS = ["승차역"];
+const TRANSIT_END_HEADERS = ["하차역"];
+
 export function parseCorporateCardPaste(text, { year = new Date().getFullYear() } = {}) {
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -62,12 +66,16 @@ export function parseCorporateCardPaste(text, { year = new Date().getFullYear() 
   const merchantIndex = headerInfo.merchantIndex;
   const industryIndex = headerInfo.industryIndex;
   const amountIndex = headerInfo.amountIndex;
+  const transitModeIndex = headerInfo.transitModeIndex;
+  const transitStartIndex = headerInfo.transitStartIndex;
+  const transitEndIndex = headerInfo.transitEndIndex;
   const errors = [];
+  const isTransitSheet = transitModeIndex >= 0 && transitStartIndex >= 0 && transitEndIndex >= 0;
 
   if (dateIndex < 0) {
     errors.push({ rowNumber: 1, message: "일자/사용일자/승인일자/이용일시 열을 찾지 못했습니다." });
   }
-  if (merchantIndex < 0) {
+  if (merchantIndex < 0 && !isTransitSheet) {
     errors.push({ rowNumber: 1, message: "가맹점/가맹점명 열을 찾지 못했습니다." });
   }
   if (amountIndex < 0) {
@@ -82,8 +90,12 @@ export function parseCorporateCardPaste(text, { year = new Date().getFullYear() 
     const rowNumber = index + 1;
     const cells = splitRow(lines[index]);
     const dateKey = parseCardDate(cells[dateIndex], year);
-    const merchantName = String(cells[merchantIndex] || "").trim();
-    const industryName = industryIndex >= 0 ? String(cells[industryIndex] || "").trim() : "";
+    const transitMode = transitModeIndex >= 0 ? String(cells[transitModeIndex] || "").trim() : "";
+    const transitStart = transitStartIndex >= 0 ? String(cells[transitStartIndex] || "").trim() : "";
+    const transitEnd = transitEndIndex >= 0 ? String(cells[transitEndIndex] || "").trim() : "";
+    const transitNote = [transitStart, transitEnd].filter(Boolean).join(" > ");
+    const merchantName = String(cells[merchantIndex] || transitMode || "").trim();
+    const industryName = industryIndex >= 0 ? String(cells[industryIndex] || "").trim() : isTransitSheet ? "대중교통" : "";
     const amountWon = parseWon(cells[amountIndex]);
 
     if (!dateKey || !merchantName || !amountWon) {
@@ -101,6 +113,9 @@ export function parseCorporateCardPaste(text, { year = new Date().getFullYear() 
       amountWon,
       category: "review",
       status: "review",
+      sourceType: isTransitSheet ? "publicTransit" : "",
+      summary: isTransitSheet ? transitMode : "",
+      note: transitNote,
       memo: ""
     });
     entries.push(entry);
@@ -110,7 +125,7 @@ export function parseCorporateCardPaste(text, { year = new Date().getFullYear() 
 }
 
 function findHeaderRow(lines) {
-  let fallback = { headerRowIndex: 0, dateIndex: -1, merchantIndex: -1, industryIndex: -1, amountIndex: -1, score: -1 };
+  let fallback = emptyHeaderInfo();
 
   for (let index = 0; index < lines.length; index += 1) {
     const headers = splitRow(lines[index]).map(normalizeHeader);
@@ -118,10 +133,24 @@ function findHeaderRow(lines) {
     const merchantIndex = findHeaderIndex(headers, MERCHANT_HEADERS);
     const industryIndex = findHeaderIndex(headers, INDUSTRY_HEADERS);
     const amountIndex = findHeaderIndex(headers, AMOUNT_HEADERS);
-    const score = [dateIndex, merchantIndex, amountIndex].filter((value) => value >= 0).length;
+    const transitModeIndex = findHeaderIndex(headers, TRANSIT_MODE_HEADERS);
+    const transitStartIndex = findHeaderIndex(headers, TRANSIT_START_HEADERS);
+    const transitEndIndex = findHeaderIndex(headers, TRANSIT_END_HEADERS);
+    const hasMerchantSource = merchantIndex >= 0 || (transitModeIndex >= 0 && transitStartIndex >= 0 && transitEndIndex >= 0);
+    const score = [dateIndex, amountIndex].filter((value) => value >= 0).length + (hasMerchantSource ? 1 : 0);
 
     if (score > fallback.score) {
-      fallback = { headerRowIndex: index, dateIndex, merchantIndex, industryIndex, amountIndex, score };
+      fallback = {
+        headerRowIndex: index,
+        dateIndex,
+        merchantIndex,
+        industryIndex,
+        amountIndex,
+        transitModeIndex,
+        transitStartIndex,
+        transitEndIndex,
+        score
+      };
     }
     if (score === 3) {
       return fallback;
@@ -160,7 +189,21 @@ function inferHeaderFromDataRows(lines) {
     }
   }
 
-  return { headerRowIndex: 0, dateIndex: -1, merchantIndex: -1, industryIndex: -1, amountIndex: -1, score: -1 };
+  return emptyHeaderInfo();
+}
+
+function emptyHeaderInfo() {
+  return {
+    headerRowIndex: 0,
+    dateIndex: -1,
+    merchantIndex: -1,
+    industryIndex: -1,
+    amountIndex: -1,
+    transitModeIndex: -1,
+    transitStartIndex: -1,
+    transitEndIndex: -1,
+    score: -1
+  };
 }
 
 function findLikelyAmountIndex(cells) {
@@ -202,8 +245,12 @@ export function normalizeCorporateCardEntry(entry, nowIso = new Date().toISOStri
       ? "confirmed"
       : "review";
 
+  const identityMerchantName = entry?.sourceType === "publicTransit" && entry?.note
+    ? `${merchantName}:${entry.note}`
+    : merchantName;
+
   return {
-    id: String(entry?.id || corporateCardEntryId({ dateKey, merchantName, amountWon })),
+    id: String(entry?.id || corporateCardEntryId({ dateKey, merchantName: identityMerchantName, amountWon })),
     dateKey,
     merchantName,
     industryName: String(entry?.industryName || "").trim(),
@@ -214,6 +261,7 @@ export function normalizeCorporateCardEntry(entry, nowIso = new Date().toISOStri
     summary: String(entry?.summary || "").trim(),
     note: String(entry?.note || "").trim(),
     memo: String(entry?.memo || "").trim(),
+    sourceType: String(entry?.sourceType || "").trim(),
     status,
     createdAt: entry?.createdAt || nowIso,
     updatedAt: entry?.updatedAt || nowIso

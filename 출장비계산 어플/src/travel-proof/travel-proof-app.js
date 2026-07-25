@@ -4181,6 +4181,9 @@ function corporateCardAllowanceLedgerEntry(entry) {
 }
 
 function corporateCardDateAmountKey(entry) {
+  if (entry?.sourceType === "publicTransit") {
+    return `${entry?.dateKey || ""}:${Number(entry?.amountWon) || 0}:${entry?.merchantName || ""}:${entry?.note || ""}`;
+  }
   return `${entry?.dateKey || ""}:${Number(entry?.amountWon) || 0}`;
 }
 
