@@ -25,6 +25,61 @@ let updateStatus = { state: "idle", message: "업데이트 확인 전" };
 let pendingInstaller = "";
 let pendingVersion = "";
 
+const UPDATE_HELPER_SCRIPT = String.raw`
+param([string]$OptionsPath)
+$ErrorActionPreference = "SilentlyContinue"
+
+function Wait-ParentExit {
+  param([int]$ParentPid, [int]$TimeoutSeconds)
+  if ($ParentPid -le 0) { return }
+  $process = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
+  if ($null -ne $process) {
+    Wait-Process -Id $ParentPid -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+  }
+}
+
+function Stop-OldApp {
+  param([string]$AppExecutable)
+  $appName = [System.IO.Path]::GetFileNameWithoutExtension($AppExecutable)
+  if (-not $appName) { return }
+  Get-Process -Name $appName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 1200
+}
+
+function Run-Installer {
+  param([string]$InstallerPath)
+  $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -WindowStyle Hidden -Wait -PassThru
+  return $process.ExitCode -eq 0
+}
+
+function Launch-App {
+  param([string]$AppExecutable)
+  Start-Process -FilePath $AppExecutable -WindowStyle Hidden | Out-Null
+}
+
+$options = Get-Content -LiteralPath $OptionsPath -Raw | ConvertFrom-Json
+Wait-ParentExit -ParentPid ([int]$options.parentPid) -TimeoutSeconds 45
+Stop-OldApp -AppExecutable ([string]$options.appExecutable)
+
+$installed = Run-Installer -InstallerPath ([string]$options.installer)
+if (-not $installed) {
+  Start-Sleep -Seconds 2
+  Stop-OldApp -AppExecutable ([string]$options.appExecutable)
+  $installed = Run-Installer -InstallerPath ([string]$options.installer)
+}
+
+if ($installed) {
+  Launch-App -AppExecutable ([string]$options.appExecutable)
+  exit 0
+}
+
+if ($options.previousInstaller -and (Test-Path -LiteralPath ([string]$options.previousInstaller))) {
+  Run-Installer -InstallerPath ([string]$options.previousInstaller) | Out-Null
+  Launch-App -AppExecutable ([string]$options.appExecutable)
+}
+exit 1
+`;
+
 function resolveLocalAppData() {
   try {
     return app.getPath("localAppData");
@@ -75,6 +130,7 @@ app.on("before-quit", (event) => {
       `BusinessTripProof-${app.getVersion()}-Setup.exe`
     );
     const helperOptions = join(appDataRoot, "update-helper-options.json");
+    const helperScript = join(appDataRoot, "update-helper.ps1");
     await writeFile(helperOptions, JSON.stringify({
       parentPid: process.pid,
       installer: pendingInstaller,
@@ -82,11 +138,18 @@ app.on("before-quit", (event) => {
       appExecutable: process.execPath,
       healthFile
     }, null, 2));
-    const child = spawn(process.execPath, [join(app.getAppPath(), "desktop", "update-helper.cjs"), helperOptions], {
+    await writeFile(helperScript, UPDATE_HELPER_SCRIPT, "utf8");
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      helperScript,
+      helperOptions
+    ], {
       detached: true,
       stdio: "ignore",
-      windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
+      windowsHide: true
     });
     child.unref();
     app.exit(0);

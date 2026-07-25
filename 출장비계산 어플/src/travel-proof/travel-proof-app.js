@@ -44,7 +44,7 @@ import {
   selectedMonthKey
 } from "./proof-ppt.js";
 import { buildWeekdayCalendarMonth } from "./korean-business-calendar.js";
-import { initInitialSetup, isInitialSetupCompleted } from "./initial-setup.js";
+import { initInitialSetup, isInitialSetupCompleted, writeInitialSetup } from "./initial-setup.js";
 
 const now = new Date();
 const PPT_IMAGE_DIRECT_SIZE_LIMIT = 1_200_000;
@@ -645,6 +645,7 @@ async function initializeInitialSetup() {
   }
   const settings = readAppSettings();
   const defaultStoragePath = await fetchDefaultStoragePath();
+  const serverSetup = await fetchServerInitialSetup();
   const initialSetup = initInitialSetup({
     mount,
     defaults: {
@@ -674,8 +675,33 @@ async function initializeInitialSetup() {
     onComplete: applyInitialSetupResult
   });
   document.querySelector("#reopenInitialSetupButton")?.addEventListener("click", () => initialSetup.open());
+  if (serverSetup?.completed && !isInitialSetupCompleted()) {
+    writeInitialSetup({
+      userName: settings.authorName || "",
+      branchName: settings.branchName || "",
+      defaultStartLocation: settings.defaultStart || "",
+      defaultEndLocation: settings.defaultDestination || "",
+      teamMemberCount: Number(settings.welfarePeople) || 3,
+      storagePath: serverSetup.storagePath || settings.storagePath || defaultStoragePath,
+      isInitialSetupCompleted: true
+    });
+  }
   if (!PROTOTYPE_PREVIEW && !isInitialSetupCompleted()) {
     initialSetup.open();
+  }
+}
+
+async function fetchServerInitialSetup() {
+  try {
+    const response = await fetch("/api/travel-proof/personal-storage");
+    const data = await response.json();
+    if (!data.ok) return { completed: false, storagePath: "" };
+    return {
+      completed: Boolean(data.status?.configured || data.settings?.onboardingComplete),
+      storagePath: data.settings?.driveRoot || ""
+    };
+  } catch {
+    return { completed: false, storagePath: "" };
   }
 }
 
