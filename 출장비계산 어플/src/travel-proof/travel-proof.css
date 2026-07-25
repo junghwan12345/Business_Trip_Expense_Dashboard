@@ -226,16 +226,15 @@ body {
 
 .sidebar-footer {
   margin-top: auto;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-soft);
-  padding: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .sidebar-footer span,
 .sidebar-footer strong,
 .sidebar-footer small {
-  display: block;
+  display: none;
 }
 
 .sidebar-footer span {
@@ -254,7 +253,7 @@ body {
 .update-refresh-button {
   width: 100%;
   min-height: 36px;
-  margin-top: 12px;
+  margin-top: 0;
   border: 1px solid #dbe3ef;
   border-radius: 10px;
   background: #ffffff;
@@ -5994,11 +5993,13 @@ body[data-active-page="distance"] .app-main {
 
 .settings-simple-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 13px;
+  row-gap: 3px;
   align-items: center;
-  min-height: 112px;
-  padding: 20px 22px;
+  min-height: 78px;
+  padding: 15px 18px;
   border: 1px solid #e1e8f5;
   border-radius: 16px;
   background: #ffffff;
@@ -6028,28 +6029,32 @@ body[data-active-page="distance"] .app-main {
 
 .settings-simple-icon {
   display: inline-grid;
-  width: 48px;
-  height: 48px;
+  grid-row: 1 / span 2;
+  width: 44px;
+  height: 44px;
   place-items: center;
-  border-radius: 15px;
+  border-radius: 14px;
   background: #f0ebff;
   color: #5b35f5;
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .settings-simple-card strong {
   display: block;
-  margin-bottom: 5px;
-  font-size: 18px;
+  grid-column: 2;
+  margin: 0;
+  font-size: 15px;
   font-weight: 850;
+  line-height: 1.25;
 }
 
 .settings-simple-card small {
   display: block;
+  grid-column: 2;
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
-  line-height: 1.55;
+  line-height: 1.35;
 }
 
 .settings-simple-card > .ph-caret-right {
