@@ -94,6 +94,15 @@
 - 대중교통 법인카드 장표는 일반 법인카드 양식과 달리 가맹점 열이 없고 `이용수단`, `승차역`, `하차역` 중심으로 구성된다.
 - 파서는 `이용수단`을 사용처로, `대중교통`을 업종으로, `승차역 > 하차역`을 비고로 저장하도록 했다.
 - 같은 날짜에 같은 금액의 지하철 내역이 왕복으로 생길 수 있으므로 대중교통 내역의 ID와 중복키에는 비고 경로를 포함한다.
+# 2026-07-25 설치 앱 Excel 작성 오류 수정
+
+- 다른 PC 설치 앱에서 지출결의서 만들기 실행 시 PowerShell이 `resources\app.asar\src\travel-proof\excel-write-com.ps1`을 직접 열려고 하면서 실패했다.
+- 원인은 Electron 패키징 후 `.ps1`이 `app.asar` 내부 경로가 되어 외부 PowerShell 프로세스가 실제 파일로 접근할 수 없기 때문이다.
+- 서버는 Excel 작성 실행 직전에 `.ps1` 내용을 사용자 데이터 임시 폴더의 실제 파일로 복사하고 그 경로를 PowerShell에 넘기도록 수정했다.
+- 다음 설치파일부터는 `src/travel-proof/*.ps1`을 `asarUnpack` 대상으로 지정해 외부 실행 파일 호환성을 높인다.
+- 현재 Codex 빌드 환경에는 `npm`이 없어 electron-builder의 의존성 트리 수집이 실패하므로, `package-lock.json` 기반의 빌드용 `npm ls` shim을 추가했다.
+- 7-Zip 고압축 단계에서 메모리 부족이 발생해 installer compression을 `store`로 낮췄고, `BusinessTripProof-1.1.2-Setup.exe` 생성에 성공했다.
+
 # 2026-07-25 사이드바/설정 간소화
 
 - 사이드바 하단은 사용자가 상태 문구를 원하지 않아 업데이트 확인 버튼만 보이도록 CSS에서 상태 텍스트를 숨겼다.

@@ -708,16 +708,18 @@ function normalizeExcelWriteRows(rows) {
 
 async function runExcelWriteAutomation(payload) {
   const inputPath = join(personalDataRoot, `excel-write-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+  const tempScriptPath = join(personalDataRoot, `excel-write-com-${Date.now()}-${Math.random().toString(16).slice(2)}.ps1`);
   await mkdir(personalDataRoot, { recursive: true });
   await writeFile(inputPath, JSON.stringify(payload), "utf8");
   const scriptPath = join(root, "src", "travel-proof", "excel-write-com.ps1");
   try {
+    await writeFile(tempScriptPath, await readFile(scriptPath));
     const { stdout, stderr } = await runProcess("powershell.exe", [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-File",
-      scriptPath,
+      tempScriptPath,
       "-InputJson",
       inputPath
     ], { timeoutMs: 120000 });
@@ -729,6 +731,7 @@ async function runExcelWriteAutomation(payload) {
     return result;
   } finally {
     await unlink(inputPath).catch(() => {});
+    await unlink(tempScriptPath).catch(() => {});
   }
 }
 
