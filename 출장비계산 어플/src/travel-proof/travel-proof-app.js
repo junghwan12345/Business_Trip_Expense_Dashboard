@@ -785,6 +785,11 @@ async function refreshUpdatedApp() {
     if (window.desktopBridge?.checkForUpdates) {
       const status = await window.desktopBridge.checkForUpdates();
       renderDesktopUpdateStatus(status);
+      if (status?.state === "ready" && window.desktopBridge.installUpdate) {
+        elements.updateRefreshButton.innerHTML = '<i class="ph ph-spinner-gap" aria-hidden="true"></i> 설치 준비';
+        elements.updateStatusLabel.textContent = "앱을 종료하고 업데이트를 설치합니다.";
+        await window.desktopBridge.installUpdate();
+      }
       return;
     }
     const response = await fetch("/api/travel-proof/update-refresh", { method: "POST" });

@@ -211,6 +211,11 @@ function registerDesktopIpc() {
   }));
   ipcMain.handle("desktop:update-status", () => updateStatus);
   ipcMain.handle("desktop:check-updates", checkForUpdates);
+  ipcMain.handle("desktop:install-update", () => {
+    if (!pendingInstaller) return setUpdateStatus("idle", "설치할 업데이트가 없습니다.");
+    app.quit();
+    return setUpdateStatus("installing", "앱을 종료하고 업데이트를 설치합니다.");
+  });
 }
 
 async function checkForUpdates() {
