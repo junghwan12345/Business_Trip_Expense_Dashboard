@@ -1,4 +1,4 @@
-import {
+﻿import {
   buildFieldVisitExpensePasteRows,
   buildMonthlyProofGroups,
   canRetryFailedCapture,
@@ -39,6 +39,7 @@ import {
   EXTRA_PROOF_FOLDER_ALIASES,
   groupProofImagesByDate,
   proofMonthDirectoryPath,
+  proofSubfolder,
   proofTypeFromFileName,
   selectedMonthKey
 } from "./proof-ppt.js";
@@ -62,7 +63,7 @@ const PAGE_META = Object.freeze({
     title: "거리 유류대 통행료 캡처",
     icon: "ph-gas-pump",
     description: "출장 경로와 날짜별 유가·통행료 증빙을 자동으로 준비합니다.",
-    help: "엑셀표를 붙여넣고 일정을 확인한 뒤 캡처 시작을 누르세요."
+    help: "거리·유가·통행료 중 필요한 항목을 선택하고 캡처 시작을 누르세요."
   },
   coupang: {
     title: "조활비·소모품비 대시보드",
@@ -138,6 +139,7 @@ const state = {
   failedJobs: [],
   fuelRows: [],
   tollRows: [],
+  tollBatchResults: new Map(),
   coupangEntries: [],
   ledgerEntries: [],
   corporateCardEntries: [],
@@ -146,6 +148,19 @@ const state = {
   excelPreviewCollapsed: {},
   fieldVisitPreviewExpanded: false,
   corporateCardListExpanded: false,
+  captureProofPreviewGroups: [],
+  captureProofPreviewImages: [],
+  captureProofPreviewMonthKey: "",
+  captureProofSelectedNames: new Set(),
+  captureProofActiveName: "",
+  captureProofExpandedDates: {},
+  captureProofCardCollapsed: true,
+  storedCaptureResultLogs: [],
+  captureResultLogs: [],
+  captureResultFilter: "all",
+  captureLogExpandedDates: {},
+  captureModalImages: [],
+  captureModalIndex: -1,
   corporateCardSort: { key: "dateKey", direction: "asc" },
   ledgerSort: { key: "dateKey", direction: "asc" },
   excelPreviewSort: {
@@ -161,10 +176,16 @@ const state = {
   directoryHandle: null,
   pendingBrowserDriveHandle: null,
   running: false,
+  captureTargets: {
+    toll: true,
+    route: true,
+    oil: true
+  },
   captureStats: {
     total: 0,
     success: 0,
-    failure: 0
+    failure: 0,
+    skipped: 0
   }
 };
 
@@ -181,11 +202,14 @@ const elements = {
   previewButton: document.querySelector("#previewButton"),
   chooseFolderButton: document.querySelector("#chooseFolderButton"),
   runButton: document.querySelector("#runButton"),
+  captureTargetInputs: document.querySelectorAll("[id^='captureTarget']"),
   retryFailedButton: document.querySelector("#retryFailedButton"),
   createPptButton: document.querySelector("#createPptButton"),
   previewPptButton: document.querySelector("#previewPptButton"),
   pptMonthInput: document.querySelector("#pptMonthInput"),
   refreshStorageButton: document.querySelector("#refreshStorageButton"),
+  refreshStoragePreviewButton: document.querySelector("#refreshStoragePreviewButton"),
+  storagePreviewPanel: document.querySelector("#storagePreviewPanel"),
   runCoupangButton: document.querySelector("#runCoupangButton"),
   loadSampleButton: document.querySelector("#loadSampleButton"),
   prevMonthButton: document.querySelector("#prevMonthButton"),
@@ -200,6 +224,13 @@ const elements = {
   captureResultDetail: document.querySelector("#captureResultDetail"),
   successList: document.querySelector("#successList"),
   errorList: document.querySelector("#errorList"),
+  captureLogCard: document.querySelector(".capture-log-card"),
+  captureProofPreviewList: document.querySelector("#captureProofPreviewList"),
+  captureProofPreviewSummary: document.querySelector("#captureProofPreviewSummary"),
+  refreshCaptureProofPreviewButton: document.querySelector("#refreshCaptureProofPreviewButton"),
+  captureProofCard: document.querySelector(".capture-proof-card"),
+  captureProofHeading: document.querySelector(".capture-proof-heading"),
+  toggleCaptureProofCardButton: document.querySelector("#toggleCaptureProofCardButton"),
   progressBar: document.querySelector("#progressBar"),
   pageTitle: document.querySelector("#pageTitle"),
   captureResultPanel: document.querySelector("#captureResultPanel"),
@@ -272,6 +303,12 @@ const elements = {
   settingsAuthorNameInput: document.querySelector("#settingsAuthorNameInput"),
   settingsPeopleInput: document.querySelector("#settingsPeopleInput"),
   settingsSupplyLimitInput: document.querySelector("#settingsSupplyLimitInput"),
+  settingsStoragePathPreview: document.querySelector("#settingsStoragePathPreview"),
+  settingsStoragePreviewText: document.querySelector("#settingsStoragePreviewText"),
+  settingsWelfarePreview: document.querySelector("#settingsWelfarePreview"),
+  settingsRoleButtons: document.querySelectorAll("[data-settings-role]"),
+  settingsPeopleStepButtons: document.querySelectorAll("[data-settings-people-step]"),
+  settingsRoutePreviews: document.querySelectorAll("[data-settings-route-preview]"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   settingChooseFolderButton: document.querySelector("#settingChooseFolderButton"),
   settingsStatus: document.querySelector("#settingsStatus"),
@@ -288,7 +325,8 @@ const elements = {
   storageSettingsStatus: document.querySelector("#storageSettingsStatus"),
   navItems: document.querySelectorAll("[data-page-target]"),
   pagePanels: document.querySelectorAll("[data-page-panel]"),
-  browserStatus: document.querySelector("#browserStatus")
+  browserStatus: document.querySelector("#browserStatus"),
+  updateRefreshButton: document.querySelector("#updateRefreshButton")
 };
 
 Object.assign(elements, {
@@ -330,18 +368,46 @@ elements.settingsDestinationInput.value = elements.destinationInput.value;
 if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = appSettings.authorName || "";
 elements.coupangPeopleInput.value = appSettings.welfarePeople || elements.coupangPeopleInput.value;
 elements.settingsPeopleInput.value = elements.coupangPeopleInput.value;
+renderSettingsRoleButtons(appSettings.userRole || "manager");
+refreshSettingsPreview();
 
 elements.previewButton.addEventListener("click", preview);
 elements.chooseFolderButton.addEventListener("click", chooseFolder);
 elements.settingChooseFolderButton?.addEventListener("click", chooseFolder);
+elements.settingsRoleButtons?.forEach((button) => {
+  button.addEventListener("click", () => {
+    renderSettingsRoleButtons(button.dataset.settingsRole);
+  });
+});
+elements.settingsPeopleStepButtons?.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextValue = Math.max(1, (Number(elements.coupangPeopleInput.value) || 1) + Number(button.dataset.settingsPeopleStep || 0));
+    elements.coupangPeopleInput.value = String(nextValue);
+    elements.settingsPeopleInput.value = String(nextValue);
+    refreshSettingsPreview();
+  });
+});
+elements.coupangPeopleInput?.addEventListener("input", () => {
+  elements.settingsPeopleInput.value = elements.coupangPeopleInput.value || "3";
+  refreshSettingsPreview();
+});
+elements.settingsStartInput?.addEventListener("input", refreshSettingsPreview);
+elements.settingsDestinationInput?.addEventListener("input", refreshSettingsPreview);
 elements.browsePersonalDriveButton?.addEventListener("click", () => browseDesktopDirectory(elements.personalDriveRootInput, "본인 Google Drive 폴더 선택"));
 elements.browseUpdateRootButton?.addEventListener("click", () => browseDesktopDirectory(elements.updateRootInput, "앱 업데이트 공유 폴더 선택"));
 elements.savePersonalDriveButton?.addEventListener("click", savePersonalDrive);
+elements.updateRefreshButton?.addEventListener("click", refreshUpdatedApp);
 elements.cancelOnboardingButton?.addEventListener("click", () => {
   if (state.personalStorage?.configured) elements.onboardingOverlay.hidden = true;
 });
 elements.syncPendingButton?.addEventListener("click", syncPendingStorage);
 elements.runButton.addEventListener("click", runCapture);
+elements.captureTargetInputs?.forEach((input) => {
+  input.addEventListener("change", () => {
+    syncCaptureTargetsFromInputs();
+    updateRunButton();
+  });
+});
 elements.retryFailedButton.addEventListener("click", retryFailedCapture);
 document.querySelector("#distanceHelpButton")?.addEventListener("click", (event) => {
   const note = document.querySelector("#distanceHelpNote");
@@ -352,7 +418,13 @@ document.querySelector("#distanceHelpButton")?.addEventListener("click", (event)
 elements.createPptButton.addEventListener("click", createProofPpt);
 elements.previewPptButton.addEventListener("click", previewProofPpt);
 elements.pptMonthInput?.addEventListener("change", previewProofPpt);
-elements.refreshStorageButton.addEventListener("click", refreshStoragePreview);
+elements.refreshStorageButton?.addEventListener("click", () => {
+  if (elements.storagePreviewPanel) {
+    elements.storagePreviewPanel.open = true;
+  }
+  refreshStoragePreview();
+});
+elements.refreshStoragePreviewButton?.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
 elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
 elements.addManualExpenseButton?.addEventListener("click", addManualExpenseEntry);
@@ -375,10 +447,12 @@ elements.addGeneralTravelButton?.addEventListener("click", addGeneralTravelEntry
 elements.writeDirectExcelButton?.addEventListener("click", writeDirectExcelWorkbook);
 document.addEventListener("click", handleExcelPreviewClick);
 document.addEventListener("click", handleCollapsiblePanelClick);
+document.addEventListener("click", handleExcelWorkflowCardClick);
 document.addEventListener("keydown", handleCollapsiblePanelKeydown);
 document.addEventListener("click", handlePasteOutputCopyClick);
 document.addEventListener("click", handleSortHeaderClick);
 document.addEventListener("keydown", handleSortHeaderKeydown);
+document.addEventListener("keydown", handleImageModalKeydown);
 elements.saveStorageSettingsButton?.addEventListener("click", saveStorageSettings);
 elements.addManualWaypointButton.addEventListener("click", addManualWaypointGroup);
 elements.loadSampleButton.addEventListener("click", loadSample);
@@ -420,6 +494,18 @@ elements.imageModal?.addEventListener("click", (event) => {
 elements.pptPreviewList.addEventListener("click", handleProofPreviewActionClick);
 elements.pptPreviewList.addEventListener("click", handlePreviewImageClick);
 elements.storagePreviewList.addEventListener("click", handlePreviewImageClick);
+elements.captureLogCard?.addEventListener("click", handleCaptureLogClick);
+elements.captureProofPreviewList?.addEventListener("click", handleCaptureProofPreviewActionClick);
+elements.captureProofPreviewList?.addEventListener("click", handlePreviewImageClick);
+elements.refreshCaptureProofPreviewButton?.addEventListener("click", () => renderCaptureProofPreview());
+elements.toggleCaptureProofCardButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleCaptureProofCard();
+});
+elements.captureProofHeading?.addEventListener("click", (event) => {
+  if (event.target.closest("button")) return;
+  toggleCaptureProofCard();
+});
 elements.ledgerEntryList?.addEventListener("click", handleLedgerActionClick);
 elements.ledgerEntryList?.addEventListener("change", handleLedgerFieldChange);
 elements.ledgerEntryList?.addEventListener("focusout", handleLedgerMemoBlur);
@@ -446,6 +532,7 @@ renderCoupangLimitSummary();
 renderStorageSettings();
 renderLedger();
 renderPreview();
+renderCaptureProofPreview();
 initializeExcelExportInputs();
 loadManualExcelEntries();
 renderExcelPasteOutputs();
@@ -531,6 +618,7 @@ async function initializeDesktopBridge() {
     elements.updateRootField.hidden = true;
     return;
   }
+  elements.updateRootField.hidden = true;
   const [appInfo, updateStatus] = await Promise.all([
     window.desktopBridge.getAppInfo(),
     window.desktopBridge.getUpdateStatus()
@@ -600,7 +688,6 @@ function applyInitialSetupResult(setup) {
     authorName: setup.userName,
     branchName: setup.branchName,
     userRole: setup.userRole,
-    gender: setup.gender,
     storagePath: setup.storagePath,
     welfarePeople: setup.userRole === "manager" ? String(setup.teamMemberCount) : previousSettings.welfarePeople
   });
@@ -610,10 +697,14 @@ function applyInitialSetupResult(setup) {
   elements.settingsStartInput.value = elements.startInput.value;
   elements.settingsDestinationInput.value = elements.destinationInput.value;
   if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = applied.authorName || "";
+  renderSettingsRoleButtons(applied.userRole || "manager");
+  refreshSettingsPreview();
+  refreshSettingsStoragePreview(setup.storagePath || "");
   if (applied.welfarePeople) {
     elements.coupangPeopleInput.value = applied.welfarePeople;
     elements.settingsPeopleInput.value = applied.welfarePeople;
   }
+  refreshSettingsPreview();
   renderCoupangLimitSummary();
   renderLedger();
   renderExcelPasteOutputs();
@@ -651,6 +742,46 @@ function renderDesktopUpdateStatus(status = {}) {
   if (!elements.updateStatusLabel) return;
   elements.updateStatusLabel.textContent = status.message || "업데이트 확인 전";
   elements.updateStatusLabel.title = status.message || "";
+  if (elements.updateRefreshButton && window.desktopBridge) {
+    elements.updateRefreshButton.innerHTML = '<i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 업데이트 확인';
+    elements.updateRefreshButton.disabled = status.state === "installing";
+  }
+}
+
+async function refreshUpdatedApp() {
+  if (!elements.updateRefreshButton) return;
+  elements.updateRefreshButton.disabled = true;
+  elements.updateRefreshButton.innerHTML = '<i class="ph ph-spinner-gap" aria-hidden="true"></i> 확인 중';
+  if (elements.updateStatusLabel) {
+    elements.updateStatusLabel.textContent = "업데이트 확인 중";
+  }
+  try {
+    if (window.desktopBridge?.checkForUpdates) {
+      const status = await window.desktopBridge.checkForUpdates();
+      renderDesktopUpdateStatus(status);
+      return;
+    }
+    const response = await fetch("/api/travel-proof/update-refresh", { method: "POST" });
+    if (response.status === 404) {
+      throw new Error("현재 실행 중인 서버가 아직 이전 버전입니다. 이번 한 번만 앱을 재시작해 주세요.");
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("갱신 응답을 읽지 못했습니다. 앱 재시작 후 다시 시도해 주세요.");
+    }
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(data.message || "업데이트 갱신 실패");
+    }
+    window.location.reload();
+  } catch (error) {
+    elements.updateRefreshButton.disabled = false;
+    elements.updateRefreshButton.innerHTML = '<i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 업데이트 확인';
+    if (elements.updateStatusLabel) {
+      elements.updateStatusLabel.textContent = `확인 실패: ${error.message}`;
+      elements.updateStatusLabel.title = error.message;
+    }
+  }
 }
 
 function renderPrerequisites(prerequisites) {
@@ -774,6 +905,7 @@ async function loadStorageInfo() {
     state.storageSettings = data.storageSettings || {};
     state.effectiveStorageRoots = data.effectiveStorageRoots || {};
     renderStorageSettings();
+    refreshSettingsStoragePreview(storage.outputRoot || "");
     if (storage.storageType === "googleDrive") {
       elements.folderLabel.textContent = `기본 저장소: Google Drive 동기화 폴더 (${storage.outputRoot})`;
       elements.browserStatus.textContent = "Drive 저장";
@@ -784,6 +916,7 @@ async function loadStorageInfo() {
       elements.folderLabel.textContent = `Google Drive 폴더를 찾지 못해 앱 폴더에 저장합니다: ${storage.outputRoot}`;
       elements.browserStatus.textContent = "로컬 저장";
     }
+    await renderCaptureProofPreview();
   } catch (error) {
     elements.folderLabel.textContent = `기본 저장소 확인 실패: ${error.message}`;
   }
@@ -920,6 +1053,7 @@ function handleVisibleMonthChange() {
   renderPreview();
   scheduleAutoPreview();
   scheduleProofPreviews();
+  renderCaptureProofPreview();
 }
 
 function shiftVisibleMonth(delta) {
@@ -1023,6 +1157,11 @@ async function runCapture() {
   if (!state.groups.length || !canSave() || state.running) {
     return;
   }
+  const captureTargets = currentCaptureTargets();
+  if (!hasSelectedCaptureTarget(captureTargets)) {
+    addError("캡처할 항목을 1개 이상 선택해주세요.");
+    return;
+  }
 
   state.running = true;
   state.failedJobs = [];
@@ -1035,22 +1174,30 @@ async function runCapture() {
   setBusy(true, "캡처 중...");
   elements.progressBar.max = state.groups.length;
   elements.progressBar.value = 0;
+  await refreshMissingProofRowsForGroups(state.groups);
+  if (captureTargets.toll) await prepareTollBatchResults(state.groups);
 
   for (const group of state.groups) {
     try {
-      const captureStatus = captureCompletionStatus(group);
+      const captureStatus = captureCompletionStatus(group, captureTargets);
       if (captureStatus.complete) {
         addSuccess(`${group.dateKey} 요청한 내용은 이미 처리가 완료된 내용입니다.`);
-        state.captureStats.success += 1;
+        state.captureStats.skipped += 1;
         continue;
       }
-      const result = await captureGroup(group, captureStatus);
+      const result = await captureGroup(group, captureStatus, captureTargets);
       upsertFuelRows(result.fuelRows);
       upsertTollRows(result.tollRows);
       renderFuelOutput();
       addCaptureStatusMessages(group, result);
       addTollCaptureStatus(group, result);
-      state.captureStats.success += 1;
+      if (captureResultHasFailure(result)) {
+        state.failedJobs = rememberFailedCapture(state.failedJobs, group, result.tollError || "캡처 일부 실패");
+        state.captureStats.failure += 1;
+        if (elements.captureResultPanel) elements.captureResultPanel.open = true;
+      } else {
+        state.captureStats.success += 1;
+      }
     } catch (error) {
       state.failedJobs = rememberFailedCapture(state.failedJobs, group, error.message);
       addError(`${group.dateKey}: ${error.message}`);
@@ -1065,46 +1212,70 @@ async function runCapture() {
 
   state.running = false;
   setBusy(false);
+  updateRetryButton();
+  await renderCaptureProofPreview();
+  showCaptureSummaryAlert();
 }
 
 async function retryFailedCapture() {
   if (!canRetryFailedCapture({ failedCount: state.failedJobs.length, running: state.running })) {
     return;
   }
+  const captureTargets = currentCaptureTargets();
+  if (!hasSelectedCaptureTarget(captureTargets)) {
+    addError("캡처할 항목을 1개 이상 선택해주세요.");
+    return;
+  }
 
   const retryGroups = state.failedJobs.map((entry) => entry.group);
   state.running = true;
-  elements.errorList.innerHTML = "";
+  if (elements.errorList) elements.errorList.innerHTML = "";
+  state.captureResultLogs = [];
+  state.captureLogExpandedDates = {};
+  state.captureResultFilter = "all";
   state.captureStats = emptyCaptureStats(retryGroups.length);
   renderCaptureResult();
   setBusy(true, "실패건 재실행 중...");
   elements.progressBar.max = retryGroups.length;
   elements.progressBar.value = 0;
+  await refreshMissingProofRowsForGroups(retryGroups);
+  if (captureTargets.toll) await prepareTollBatchResults(retryGroups);
 
-  await runCaptureGroups(retryGroups, { retry: true });
+  await runCaptureGroups(retryGroups, { retry: true, captureTargets });
 
   state.running = false;
   setBusy(false);
+  updateRetryButton();
+  await renderCaptureProofPreview();
+  showCaptureSummaryAlert();
 }
 
-async function runCaptureGroups(groups, { retry = false } = {}) {
+async function runCaptureGroups(groups, { retry = false, captureTargets = currentCaptureTargets() } = {}) {
+  await refreshMissingProofRowsForGroups(groups);
+  if (captureTargets.toll) await prepareTollBatchResults(groups);
   for (const group of groups) {
     try {
-      const captureStatus = captureCompletionStatus(group);
+      const captureStatus = captureCompletionStatus(group, captureTargets);
       if (captureStatus.complete) {
         state.failedJobs = removeFailedCapture(state.failedJobs, group);
         addSuccess(`${group.dateKey} 요청한 내용은 이미 처리가 완료된 내용입니다.`);
-        state.captureStats.success += 1;
+        state.captureStats.skipped += 1;
         continue;
       }
-      const result = await captureGroup(group, captureStatus);
+      const result = await captureGroup(group, captureStatus, captureTargets);
       state.failedJobs = removeFailedCapture(state.failedJobs, group);
       upsertFuelRows(result.fuelRows);
       upsertTollRows(result.tollRows);
       renderFuelOutput();
       addCaptureStatusMessages(group, result, retry);
       addTollCaptureStatus(group, result, retry);
-      state.captureStats.success += 1;
+      if (captureResultHasFailure(result)) {
+        state.failedJobs = rememberFailedCapture(state.failedJobs, group, result.tollError || "캡처 일부 실패");
+        state.captureStats.failure += 1;
+        if (elements.captureResultPanel) elements.captureResultPanel.open = true;
+      } else {
+        state.captureStats.success += 1;
+      }
     } catch (error) {
       state.failedJobs = rememberFailedCapture(state.failedJobs, group, error.message);
       addError(`${group.dateKey}: ${error.message}`);
@@ -1118,31 +1289,37 @@ async function runCaptureGroups(groups, { retry = false } = {}) {
   }
 }
 
-async function captureGroup(group, completionStatus = captureCompletionStatus(group)) {
+async function captureGroup(group, completionStatus = captureCompletionStatus(group), captureTargets = currentCaptureTargets()) {
   const job = createBrowserJob(group);
   const shouldUseServerSave = !state.directoryHandle;
-  const shouldCaptureRouteOil = !completionStatus.routeOilComplete;
-  const [routeResult, oilResult, tollResult] = await Promise.all([
-    shouldCaptureRouteOil
-      ? captureRouteProof(group, job, shouldUseServerSave)
-      : Promise.resolve(null),
-    shouldCaptureRouteOil
-      ? (FAST_CAPTURE_ENABLED
-        ? getCachedOilProof(group, shouldUseServerSave)
-        : captureOilProof(group, shouldUseServerSave))
-      : Promise.resolve(null),
-    completionStatus.tollComplete
-      ? Promise.resolve(null)
-      : captureTollProof(group, shouldUseServerSave).catch((error) => ({
-        error: error.message
-      }))
-  ]);
+  const shouldCaptureRoute = captureTargets.route && !completionStatus.routeOilComplete;
+  const shouldCaptureOil = captureTargets.oil && !completionStatus.routeOilComplete;
+  let routeResult = null;
+  let oilResult = null;
+  let tollResult = null;
 
-  const fuelRows = shouldCaptureRouteOil ? buildFieldVisitExpensePasteRows([{
-    group,
-    distanceKm: routeResult.distanceKm,
-    fuelPriceWon: oilResult.fuelPriceWon
-  }]) : [];
+  if (captureTargets.toll && !completionStatus.tollComplete) {
+    tollResult = await captureTollProof(group, shouldUseServerSave).catch((error) => ({
+      error: error.message
+    }));
+  }
+
+  if (shouldCaptureRoute && shouldCaptureOil) {
+    [routeResult, oilResult] = await Promise.all([
+      captureRouteProof(group, job, shouldUseServerSave),
+      FAST_CAPTURE_ENABLED
+        ? getCachedOilProof(group, shouldUseServerSave)
+        : captureOilProof(group, shouldUseServerSave)
+    ]);
+  } else if (shouldCaptureRoute) {
+    routeResult = await captureRouteProof(group, job, shouldUseServerSave);
+  } else if (shouldCaptureOil) {
+    oilResult = FAST_CAPTURE_ENABLED
+      ? await getCachedOilProof(group, shouldUseServerSave)
+      : await captureOilProof(group, shouldUseServerSave);
+  }
+
+  const fuelRows = buildFuelRowsFromCaptureParts(group, { routeResult, oilResult });
   const tollRows = tollResult && !tollResult.error && !isNoHipassTollResult(tollResult)
     ? buildTollExpensePasteRows([{ group, dateKey: group.dateKey, amountWon: tollResult.amountWon, savedPath: tollResult.savedPath }])
     : tollResult && !tollResult.error
@@ -1150,9 +1327,12 @@ async function captureGroup(group, completionStatus = captureCompletionStatus(gr
       : [];
 
   return {
-    routeSkipped: !shouldCaptureRouteOil,
-    oilSkipped: !shouldCaptureRouteOil,
-    tollSkipped: completionStatus.tollComplete,
+    routeSelected: captureTargets.route,
+    oilSelected: captureTargets.oil,
+    tollSelected: captureTargets.toll,
+    routeSkipped: captureTargets.route && !shouldCaptureRoute,
+    oilSkipped: captureTargets.oil && !shouldCaptureOil,
+    tollSkipped: captureTargets.toll && completionStatus.tollComplete,
     routeSavedPath: routeResult?.savedPath || "",
     oilSavedPath: oilResult?.savedPath || "",
     tollSavedPath: tollResult?.savedPath || "",
@@ -1163,6 +1343,10 @@ async function captureGroup(group, completionStatus = captureCompletionStatus(gr
     fuelRows,
     tollRows
   };
+}
+
+function captureResultHasFailure(result) {
+  return Boolean(result?.tollError);
 }
 
 async function captureRouteProof(group, job, shouldUseServerSave) {
@@ -1219,6 +1403,11 @@ async function captureOilProof(group, shouldUseServerSave) {
 }
 
 async function captureTollProof(group, shouldUseServerSave) {
+  const batchResult = state.tollBatchResults.get(group.dateKey);
+  if (batchResult) {
+    return batchResult;
+  }
+
   const tollResponse = await fetch(shouldUseServerSave ? "/api/travel-proof/toll-capture-save" : "/api/travel-proof/toll-capture", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1236,6 +1425,78 @@ async function captureTollProof(group, shouldUseServerSave) {
     ? tollData.result.savedPath
     : await saveScreenshot(group.monthKey, HIPASS_TOLL_FOLDER, tollData.result.fileName.replace(/\.png$/i, ""), tollData.result.imageBase64);
   return { ...tollData.result, savedPath };
+}
+
+function buildFuelRowsFromCaptureParts(group, { routeResult = null, oilResult = null } = {}) {
+  const draft = existingFuelCaptureDraft(group);
+  const distanceKm = Number(routeResult?.distanceKm || draft.distanceKm || 0);
+  const fuelPriceWon = Number(oilResult?.fuelPriceWon || draft.fuelPriceWon || 0);
+  const routeSavedPath = routeResult?.savedPath || draft.routeSavedPath || "";
+  const oilSavedPath = oilResult?.savedPath || draft.oilSavedPath || "";
+
+  if (distanceKm && fuelPriceWon) {
+    return buildFieldVisitExpensePasteRows([{ group, distanceKm, fuelPriceWon }]).map((row) => ({
+      ...row,
+      distanceKm,
+      fuelPriceWon,
+      routeSavedPath,
+      oilSavedPath
+    }));
+  }
+
+  if (!distanceKm && !fuelPriceWon && !routeSavedPath && !oilSavedPath) {
+    return [];
+  }
+
+  return [{
+    key: fuelCaptureDraftKey(group),
+    dateKey: group.dateKey,
+    monthKey: group.monthKey,
+    distanceKm,
+    fuelPriceWon,
+    routeSavedPath,
+    oilSavedPath,
+    pendingFuelCapture: true
+  }];
+}
+
+function existingFuelCaptureDraft(group) {
+  const draft = state.fuelRows.find((row) => row.key === fuelCaptureDraftKey(group));
+  return {
+    distanceKm: Number(draft?.distanceKm || 0),
+    fuelPriceWon: Number(draft?.fuelPriceWon || 0),
+    routeSavedPath: draft?.routeSavedPath || "",
+    oilSavedPath: draft?.oilSavedPath || ""
+  };
+}
+
+async function prepareTollBatchResults(groups = []) {
+  state.tollBatchResults = new Map();
+  const shouldUseServerSave = !state.directoryHandle;
+  if (!shouldUseServerSave) return;
+  const dateKeys = [...new Set(groups
+    .filter((group) => group?.dateKey && !captureCompletionStatus(group).tollComplete)
+    .map((group) => group.dateKey))]
+    .sort();
+  if (dateKeys.length <= 1) return;
+
+  const response = await fetch("/api/travel-proof/toll-capture-batch-save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dateKeys, fastCapture: FAST_CAPTURE_ENABLED })
+  }).catch((error) => ({ ok: false, error }));
+  if (!response.ok) {
+    addError(`통행료 기간 조회 실패: ${response.error?.message || "기존 날짜별 조회로 진행합니다."}`);
+    return;
+  }
+  const data = await response.json();
+  if (!data.ok) {
+    addError(`통행료 기간 조회 실패: ${data.message || "기존 날짜별 조회로 진행합니다."}`);
+    return;
+  }
+  for (const result of data.results || []) {
+    if (result?.dateKey) state.tollBatchResults.set(result.dateKey, result);
+  }
 }
 
 async function runCoupangCapture() {
@@ -1372,22 +1633,197 @@ function renderTravelSummary() {
 }
 
 function renderCaptureResult() {
+  const resultLogs = currentCaptureResultLogs();
+  const successCount = resultLogs.filter((log) => log.status === "success").length;
+  const failureCount = resultLogs.filter((log) => log.status === "error").length;
   const total = state.captureStats.total || state.groups.length || 0;
-  const completed = state.captureStats.success + state.captureStats.failure;
+  const completed = state.captureStats.success + state.captureStats.failure + state.captureStats.skipped;
   const percent = total ? Math.round((completed / total) * 100) : 0;
   elements.captureResultSummary.textContent = `${percent}%`;
-  elements.captureResultDetail.textContent = `성공 ${state.captureStats.success}건 · 실패 ${state.captureStats.failure}건`;
+  elements.captureResultDetail.textContent = `성공 ${successCount}건 · 실패 ${failureCount}건`;
   if (elements.captureResultFoldSummary) {
-    elements.captureResultFoldSummary.textContent = `성공 ${state.captureStats.success}건 · 실패 ${state.captureStats.failure}건`;
+    elements.captureResultFoldSummary.textContent = `성공 ${successCount}건 · 실패 ${failureCount}건`;
   }
+  renderCaptureLogPanel(resultLogs);
 }
 
 function emptyCaptureStats(total = 0) {
   return {
     total,
     success: 0,
-    failure: 0
+    failure: 0,
+    skipped: 0
   };
+}
+
+function currentCaptureResultLogs() {
+  const storedKeys = new Set(state.storedCaptureResultLogs.map(captureResultLogKey));
+  const runtimeLogs = state.captureResultLogs
+    .map((log) => ({ ...log, status: log.status === "skipped" ? "success" : log.status }))
+    .filter((log) => log.status === "error" || !storedKeys.has(captureResultLogKey(log)));
+  return [...state.storedCaptureResultLogs, ...runtimeLogs];
+}
+
+function captureResultLogKey(log) {
+  return `${log.dateKey || ""}:${log.type || ""}`;
+}
+
+function renderCaptureLogPanel(resultLogs = currentCaptureResultLogs()) {
+  if (!elements.captureLogCard) return;
+  const logs = filterCaptureLogs(resultLogs);
+  const groupedLogs = groupCaptureLogsByDate(logs);
+  const successCount = resultLogs.filter((log) => log.status === "success").length;
+  const failureCount = resultLogs.filter((log) => log.status === "error").length;
+  const summary = `성공 ${successCount}건 · 실패 ${failureCount}건`;
+  elements.captureLogCard.innerHTML = `
+    <div class="capture-log-header">
+      <strong>처리 결과</strong>
+      <span>${escapeHtml(summary)}</span>
+    </div>
+    <div class="capture-log-filters" role="tablist" aria-label="캡처 결과 필터">
+      ${[
+        ["all", "전체"],
+        ["success", "성공"],
+        ["error", "실패"]
+      ].map(([value, label]) => `
+        <button type="button" class="${state.captureResultFilter === value ? "active" : ""}" data-capture-log-filter="${value}">${label}</button>
+      `).join("")}
+    </div>
+    <div class="capture-log-groups">
+      ${groupedLogs.length ? groupedLogs.map(renderCaptureLogGroup).join("") : `<p class="folder-label">표시할 처리 결과가 없습니다.</p>`}
+    </div>
+  `;
+}
+
+function filterCaptureLogs(logs) {
+  if (state.captureResultFilter === "all") return logs;
+  return logs.filter((log) => log.status === state.captureResultFilter);
+}
+
+function groupCaptureLogsByDate(logs) {
+  const groups = new Map();
+  for (const log of logs) {
+    const key = log.dateKey || "unknown";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(log);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => {
+      if (a === "unknown") return 1;
+      if (b === "unknown") return -1;
+      return String(b).localeCompare(String(a));
+    })
+    .map(([dateKey, items]) => ({ dateKey, items }));
+}
+
+function renderCaptureLogGroup(group) {
+  const expanded = state.captureLogExpandedDates[group.dateKey] !== false;
+  const dateLabel = group.dateKey === "unknown" ? "기타 안내" : formatKoreanDateLabel(group.dateKey);
+  return `
+    <article class="capture-log-group ${expanded ? "is-expanded" : ""}">
+      <button class="capture-log-date-button" type="button" data-capture-log-date="${escapeAttribute(group.dateKey)}">
+        <span>${expanded ? "▼" : "▶"} ${escapeHtml(dateLabel)} · ${group.items.length}건</span>
+      </button>
+      ${expanded ? `
+        <ul>
+          ${group.items.map((log) => `
+            <li class="capture-log-item ${escapeAttribute(log.status)}" title="${escapeAttribute(log.rawMessage)}">
+              <span class="capture-log-dot" aria-hidden="true"></span>
+              <span class="capture-log-type ${log.type ? `type-${escapeAttribute(log.type)}` : "is-empty"}">${escapeHtml(captureLogTypeLabel(log.type))}</span>
+              <span class="capture-log-message">${escapeHtml(log.displayMessage)}</span>
+              <span class="capture-log-status">${escapeHtml(captureLogStatusLabel(log.status))}</span>
+            </li>
+          `).join("")}
+        </ul>
+      ` : ""}
+    </article>
+  `;
+}
+
+function captureLogStatusLabel(status) {
+  if (status === "error") return "실패";
+  return "성공";
+}
+
+function captureLogTypeLabel(type) {
+  return { route: "거리", oil: "유가", toll: "통행료" }[type] || "";
+}
+
+function handleCaptureLogClick(event) {
+  const filterButton = event.target.closest("[data-capture-log-filter]");
+  if (filterButton) {
+    state.captureResultFilter = filterButton.dataset.captureLogFilter || "all";
+    renderCaptureLogPanel();
+    return;
+  }
+  const dateButton = event.target.closest("[data-capture-log-date]");
+  if (!dateButton) return;
+  const dateKey = dateButton.dataset.captureLogDate;
+  state.captureLogExpandedDates[dateKey] = state.captureLogExpandedDates[dateKey] === false;
+  renderCaptureLogPanel();
+}
+
+function rememberCaptureLog(message, status) {
+  const rawMessage = String(message || "");
+  if (/삭제된 증빙자료|캡처 이미지 .*삭제/.test(rawMessage)) return;
+  const dateKey = parseDateKeyFromText(rawMessage) || "unknown";
+  if (!(dateKey in state.captureLogExpandedDates)) state.captureLogExpandedDates[dateKey] = true;
+  state.captureResultLogs.push({
+    id: `${Date.now()}-${state.captureResultLogs.length}`,
+    status,
+    dateKey,
+    type: captureLogTypeFromText(rawMessage),
+    rawMessage,
+    displayMessage: simplifyCaptureLogMessage(rawMessage, status)
+  });
+  renderCaptureLogPanel();
+}
+
+function captureLogTypeFromText(text) {
+  const value = String(text || "");
+  if (/통행료|하이패스|toll/i.test(value)) return "toll";
+  if (/유가|oil/i.test(value)) return "oil";
+  if (/거리|경로|유류|route/i.test(value)) return "route";
+  return "";
+}
+
+function parseDateKeyFromText(text) {
+  const match = String(text || "").match(/20\d{2}-\d{2}-\d{2}/);
+  return match?.[0] || "";
+}
+
+function simplifyCaptureLogMessage(message, status = "success") {
+  const text = String(message || "").replace(/^20\d{2}-\d{2}-\d{2}\s*/, "").replace(/^:\s*/, "").trim();
+  if (/이미 처리/.test(text)) return text.includes("통행료") ? "통행료 이미 처리 완료" : text.includes("거리") ? "거리·유류대 이미 처리 완료" : "이미 처리 완료";
+  if (/통행료 없음/.test(text)) return "통행료 없음 확인";
+  if (/통행료 저장 완료/.test(text)) return "통행료 이미지 저장 완료";
+  if (/거리 저장 완료/.test(text)) return "거리 이미지 저장 완료";
+  if (/유가 저장 완료/.test(text)) return "유가 이미지 저장 완료";
+  if (/거리·유류대 처리 완료/.test(text)) return "거리·유류대 처리 완료";
+  if (/재실행/.test(text)) return "재실행 필요";
+  if (status === "error") return captureFailureReason(text);
+  return text.replace(/[A-Z]:\\[^ ]+/g, "저장 경로").replace(/\s+/g, " ").slice(0, 48);
+}
+
+function captureFailureReason(text) {
+  if (/로그인|인증/.test(text)) return "로그인 확인이 필요합니다.";
+  if (/거리|경로/.test(text)) return "거리 경로를 찾지 못했습니다.";
+  if (/유가|oil/i.test(text)) return "유가 정보를 확인하지 못했습니다.";
+  if (/통행료|하이패스|toll/i.test(text)) return "통행료 정보를 확인하지 못했습니다.";
+  return text.replace(/[A-Z]:\\[^ ]+/g, "").replace(/\s+/g, " ").slice(0, 48) || "캡처에 실패했습니다.";
+}
+
+function showCaptureSummaryAlert() {
+  const { success, failure, skipped } = state.captureStats;
+  const lines = [
+    failure ? "캡처 일부 실패" : "캡처 처리 완료",
+    `성공 ${success + skipped}건`,
+    `실패 ${failure}건`
+  ];
+  if (failure) {
+    lines.push("실패 건 재실행 버튼을 눌러 다시 시도할 수 있습니다.");
+  }
+  window.alert(lines.join("\n"));
 }
 
 function renderRouteCalendar() {
@@ -2069,6 +2505,323 @@ function renderProofPreviewCard(group, { allowDelete = false } = {}) {
   return card;
 }
 
+async function renderCaptureProofPreview() {
+  if (!elements.captureProofPreviewList) return;
+  const monthKey = resolveSelectedMonthKey();
+  elements.captureProofPreviewList.innerHTML = `<p class="folder-label">캡처 이미지를 불러오는 중입니다.</p>`;
+  if (elements.captureProofPreviewSummary) {
+    elements.captureProofPreviewSummary.textContent = "불러오는 중";
+  }
+  if (!monthKey) {
+    elements.captureProofPreviewList.innerHTML = `<p class="folder-label">조회할 년도와 월을 선택해 주세요.</p>`;
+    if (elements.captureProofPreviewSummary) elements.captureProofPreviewSummary.textContent = "저장된 이미지 0개";
+    return;
+  }
+
+  try {
+    const groups = state.directoryHandle
+      ? await readBrowserCaptureProofGroups(monthKey)
+      : await readServerCaptureProofGroups(monthKey);
+    renderCaptureProofPreviewGroups(groups, monthKey);
+  } catch (error) {
+    elements.captureProofPreviewList.innerHTML = `<p class="folder-label error">캡처 이미지 확인 실패: ${escapeHtml(error.message)}</p>`;
+    if (elements.captureProofPreviewSummary) elements.captureProofPreviewSummary.textContent = "확인 실패";
+  }
+}
+
+async function readServerCaptureProofGroups(monthKey) {
+  const response = await fetch("/api/travel-proof/ppt-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ monthKey })
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.message);
+  }
+  return filterCaptureProofGroups(data.result.groups || []);
+}
+
+async function readBrowserCaptureProofGroups(monthKey) {
+  const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
+  const images = await collectBrowserProofImages(monthDirectory, monthKey);
+  return filterCaptureProofGroups(groupProofImagesByDate(images, monthKey));
+}
+
+function filterCaptureProofGroups(groups = []) {
+  return (groups || [])
+    .map((group) => ({
+      dateKey: group.dateKey,
+      route: group.route || [],
+      oil: group.oil || [],
+      toll: group.toll || []
+    }))
+    .filter((group) => captureProofImagesForGroup(group).length > 0);
+}
+
+function renderCaptureProofPreviewGroups(groups, monthKey) {
+  if (state.captureProofPreviewMonthKey !== monthKey) {
+    state.captureProofExpandedDates = {};
+    state.captureProofSelectedNames = new Set();
+  }
+  state.captureProofPreviewGroups = groups;
+  state.captureProofPreviewMonthKey = monthKey;
+  state.captureProofPreviewImages = flattenCaptureProofGroups(groups);
+  state.storedCaptureResultLogs = buildStoredCaptureResultLogs(state.captureProofPreviewImages);
+  const imageNames = new Set(state.captureProofPreviewImages.map((image) => image.name));
+  state.captureProofSelectedNames = new Set([...state.captureProofSelectedNames].filter((name) => imageNames.has(name)));
+  initializeCaptureProofExpandedDates(groups);
+  const selectedCount = state.captureProofSelectedNames.size;
+  if (elements.captureProofPreviewSummary) {
+    elements.captureProofPreviewSummary.textContent = `${periodMonthLabel(monthKey)} · 이미지 ${state.captureProofPreviewImages.length}개`;
+  }
+  renderCaptureResult();
+  elements.captureProofPreviewList.innerHTML = "";
+  const failureNotice = renderCaptureProofFailureNotice();
+  if (!groups.length) {
+    if (failureNotice) elements.captureProofPreviewList.append(failureNotice);
+    elements.captureProofPreviewList.insertAdjacentHTML("beforeend", `<p class="folder-label">선택한 월에 저장된 거리/유가/통행료 이미지가 없습니다.</p>`);
+    renderCaptureProofCardCollapse();
+    return;
+  }
+  if (failureNotice) elements.captureProofPreviewList.append(failureNotice);
+  elements.captureProofPreviewList.append(renderCaptureProofToolbar());
+  const board = document.createElement("div");
+  board.className = "capture-proof-board";
+  const gallery = document.createElement("div");
+  gallery.className = "capture-proof-gallery";
+  for (const group of groups) {
+    gallery.append(renderCaptureProofPreviewCard(group));
+  }
+  board.append(gallery);
+  elements.captureProofPreviewList.append(board);
+  renderCaptureProofCardCollapse();
+}
+
+function toggleCaptureProofCard() {
+  state.captureProofCardCollapsed = !state.captureProofCardCollapsed;
+  renderCaptureProofCardCollapse();
+}
+
+function renderCaptureProofCardCollapse() {
+  if (!elements.captureProofCard) return;
+  elements.captureProofCard.classList.toggle("is-collapsed", state.captureProofCardCollapsed);
+  if (elements.toggleCaptureProofCardButton) {
+    elements.toggleCaptureProofCardButton.textContent = state.captureProofCardCollapsed ? "펼치기" : "접기";
+    elements.toggleCaptureProofCardButton.setAttribute("aria-expanded", String(!state.captureProofCardCollapsed));
+  }
+}
+
+function renderCaptureProofFailureNotice() {
+  const failures = currentCaptureResultLogs().filter((log) => log.status === "error");
+  if (!failures.length) return null;
+  const notice = document.createElement("div");
+  notice.className = "capture-proof-failure-notice";
+  const firstFailure = failures[0];
+  notice.innerHTML = `
+    <strong>실패 ${failures.length}건</strong>
+    <span title="${escapeAttribute(firstFailure.rawMessage)}">${escapeHtml(firstFailure.displayMessage || "실패한 항목이 있습니다.")}</span>
+  `;
+  return notice;
+}
+
+function renderCaptureProofToolbar() {
+  const toolbar = document.createElement("div");
+  toolbar.className = "capture-proof-toolbar";
+  const selectedCount = state.captureProofSelectedNames.size;
+  toolbar.innerHTML = `
+    <small class="capture-proof-toolbar-hint">이미지를 클릭하면 크게 볼 수 있습니다.</small>
+    <div class="capture-proof-toolbar-actions">
+      <span class="capture-proof-selected-count">${selectedCount}개 선택됨</span>
+      <button class="secondary-button compact danger-button" type="button" data-capture-proof-delete-selected ${selectedCount ? "" : "disabled"}><i class="ph ph-trash" aria-hidden="true"></i> 선택 삭제</button>
+    </div>
+  `;
+  return toolbar;
+}
+
+function renderCaptureProofPreviewCard(group) {
+  const card = document.createElement("article");
+  const expanded = state.captureProofExpandedDates[group.dateKey] !== false;
+  card.className = `capture-proof-date-card ${expanded ? "is-expanded" : ""}`;
+  const images = captureProofImagesForGroup(group).map((image) => ({
+    ...image,
+    dateKey: image.dateKey || group.dateKey,
+    dateLabel: formatKoreanDateLabel(image.dateKey || group.dateKey),
+    displayName: image.name?.split(/[\\/]/).at(-1) || image.name || "-"
+  }));
+  const allSelected = images.length > 0 && images.every((image) => state.captureProofSelectedNames.has(image.name));
+  card.innerHTML = `
+    <div class="capture-proof-date-title" data-capture-proof-toggle-date="${escapeAttribute(group.dateKey)}">
+      <button type="button" data-capture-proof-toggle-date="${escapeAttribute(group.dateKey)}">
+        <span>${expanded ? "▼" : "▶"} ${escapeHtml(formatKoreanDateWithWeekday(group.dateKey))} · ${images.length}개</span>
+      </button>
+      <label class="capture-date-select-all">
+        <input type="checkbox" data-capture-proof-select-date="${escapeAttribute(group.dateKey)}" ${allSelected ? "checked" : ""} />
+        <span>전체 선택</span>
+      </label>
+    </div>
+    <div class="capture-proof-thumb-grid" ${expanded ? "" : "hidden"}>
+      ${images.map((image) => `
+        <figure class="proof-type-${escapeAttribute(image.type || "extra")} ${state.captureProofSelectedNames.has(image.name) ? "is-selected" : ""}" data-capture-proof-card="${escapeAttribute(image.name)}">
+          <label class="proof-select-row" title="선택">
+            <input type="checkbox" data-capture-proof-select="${escapeAttribute(image.name)}" ${state.captureProofSelectedNames.has(image.name) ? "checked" : ""} />
+            <span>선택</span>
+          </label>
+          <img src="${image.dataUri}" alt="${escapeHtml(image.name)}" data-preview-image="${image.dataUri}" data-preview-caption="${escapeAttribute(captureProofCaption(image))}" data-capture-proof-modal="${escapeAttribute(image.name)}" />
+          <figcaption>
+            <span class="proof-type-chip">${escapeHtml(image.label)}</span>
+          </figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+  return card;
+}
+
+function initializeCaptureProofExpandedDates(groups = []) {
+  if (!groups.length) return;
+  const newestDateKey = [...groups].map((group) => group.dateKey).sort().at(-1);
+  for (const group of groups) {
+    if (!(group.dateKey in state.captureProofExpandedDates)) {
+      state.captureProofExpandedDates[group.dateKey] = groups.length <= 2 || group.dateKey === newestDateKey;
+    }
+  }
+}
+
+function flattenCaptureProofGroups(groups = []) {
+  return groups.flatMap((group) => captureProofImagesForGroup(group).map((image) => ({
+    ...image,
+    dateKey: image.dateKey || group.dateKey,
+    dateLabel: formatKoreanDateLabel(image.dateKey || group.dateKey),
+    displayName: image.name?.split(/[\\/]/).at(-1) || image.name || "-"
+  })));
+}
+
+function captureProofImagesForGroup(group) {
+  return [
+    ...(group.route || []).map((image) => ({ ...image, label: "거리", type: "route" })),
+    ...(group.oil || []).map((image) => ({ ...image, label: "유가", type: "oil" })),
+    ...(group.toll || []).map((image) => ({ ...image, label: "통행료", type: "toll" }))
+  ];
+}
+
+function buildStoredCaptureResultLogs(images = []) {
+  return images.map((image) => ({
+    id: `stored-${image.dateKey}-${image.type}-${image.name}`,
+    status: "success",
+    dateKey: image.dateKey,
+    type: image.type,
+    rawMessage: `${image.dateKey} ${image.label} 증빙 저장 완료`,
+    displayMessage: `${image.label} 증빙 저장 완료`
+  }));
+}
+
+function captureProofCaption(image) {
+  return [
+    image.label || "캡처 이미지",
+    image.dateLabel || formatKoreanDateLabel(image.dateKey),
+    image.displayName || image.name?.split(/[\\/]/).at(-1) || image.name
+  ].filter(Boolean).join("\n");
+}
+
+function formatFileSize(sizeBytes) {
+  const size = Number(sizeBytes || 0);
+  if (!size) return "-";
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)}KB`;
+  return `${(size / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function formatKoreanDateLabel(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateKey || "-";
+  return `${Number(match[2])}월 ${Number(match[3])}일`;
+}
+
+function formatKoreanDateWithWeekday(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateKey || "-";
+  const date = new Date(`${dateKey}T00:00:00+09:00`);
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  return `${Number(match[2])}월 ${Number(match[3])}일 (${weekdays[date.getDay()]})`;
+}
+
+async function handleCaptureProofPreviewActionClick(event) {
+  const selectedButton = event.target.closest("[data-capture-proof-delete-selected]");
+  if (selectedButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const selectedNames = [...state.captureProofSelectedNames];
+    if (!selectedNames.length) {
+      addError("삭제할 캡처 이미지를 먼저 선택해 주세요.");
+      return;
+    }
+    if (!window.confirm(`선택한 캡처 이미지 ${selectedNames.length}개를 삭제할까요?`)) return;
+    await deleteCaptureProofImages(selectedNames);
+    return;
+  }
+
+  const refreshButton = event.target.closest("[data-capture-proof-refresh]");
+  if (refreshButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    await renderCaptureProofPreview();
+    return;
+  }
+
+  const dateSelectInput = event.target.closest("[data-capture-proof-select-date]");
+  if (dateSelectInput) {
+    event.stopPropagation();
+    const dateKey = dateSelectInput.dataset.captureProofSelectDate;
+    const group = state.captureProofPreviewGroups.find((item) => item.dateKey === dateKey);
+    const images = captureProofImagesForGroup(group || {});
+    for (const image of images) {
+      if (dateSelectInput.checked) {
+        state.captureProofSelectedNames.add(image.name);
+      } else {
+        state.captureProofSelectedNames.delete(image.name);
+      }
+    }
+    renderCaptureProofPreviewGroups(state.captureProofPreviewGroups, state.captureProofPreviewMonthKey);
+    return;
+  }
+
+  const dateToggleButton = event.target.closest("[data-capture-proof-toggle-date]");
+  if (dateToggleButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const dateKey = dateToggleButton.dataset.captureProofToggleDate;
+    state.captureProofExpandedDates[dateKey] = state.captureProofExpandedDates[dateKey] === false;
+    renderCaptureProofPreviewGroups(state.captureProofPreviewGroups, state.captureProofPreviewMonthKey);
+    return;
+  }
+
+  const selectInput = event.target.closest("[data-capture-proof-select]");
+  if (selectInput) {
+    event.stopPropagation();
+    const imageName = selectInput.dataset.captureProofSelect;
+    if (selectInput.checked) {
+      state.captureProofSelectedNames.add(imageName);
+    } else {
+      state.captureProofSelectedNames.delete(imageName);
+    }
+    renderCaptureProofPreviewGroups(state.captureProofPreviewGroups, state.captureProofPreviewMonthKey);
+    return;
+  }
+}
+
+async function deleteCaptureProofImages(imageNames) {
+  const monthKey = resolveSelectedMonthKey();
+  try {
+    await deleteProofImages(imageNames, { monthKey });
+    imageNames.forEach((name) => state.captureProofSelectedNames.delete(name));
+    await refreshMissingProofRowsForGroups(state.groups);
+    await renderCaptureProofPreview();
+  } catch (error) {
+    window.alert(`캡처 이미지 삭제에 실패했습니다. ${error.message}`);
+  }
+}
+
 async function handleProofPreviewActionClick(event) {
   const selectedButton = event.target.closest("[data-proof-delete-selected]");
   if (selectedButton) {
@@ -2115,18 +2868,17 @@ async function handleProofPreviewActionClick(event) {
   }
 }
 
-async function deleteProofImages(imageNames) {
+async function deleteProofImages(imageNames, { monthKey = selectedPptMonthKey() } = {}) {
   for (const imageName of imageNames) {
     if (state.directoryHandle) {
-      await deleteBrowserProofImage(imageName);
+      await deleteBrowserProofImage(imageName, { monthKey });
     } else {
-      await deleteServerProofImage(imageName);
+      await deleteServerProofImage(imageName, { monthKey });
     }
   }
 }
 
-async function deleteServerProofImage(imageName) {
-  const monthKey = selectedPptMonthKey();
+async function deleteServerProofImage(imageName, { monthKey = selectedPptMonthKey() } = {}) {
   const response = await fetch("/api/travel-proof/proof-image-delete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2138,8 +2890,7 @@ async function deleteServerProofImage(imageName) {
   }
 }
 
-async function deleteBrowserProofImage(imageName) {
-  const monthKey = selectedPptMonthKey();
+async function deleteBrowserProofImage(imageName, { monthKey = selectedPptMonthKey() } = {}) {
   const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
   const parts = String(imageName || "").split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => part === "." || part === "..")) {
@@ -2158,16 +2909,41 @@ function handlePreviewImageClick(event) {
   if (!image) {
     return;
   }
+  if (image.closest("#captureProofPreviewList")) {
+    event.preventDefault();
+    event.stopPropagation();
+    const imageName = image.dataset.captureProofModal;
+    const index = state.captureProofPreviewImages.findIndex((item) => item.name === imageName);
+    if (index >= 0) {
+      openCaptureImageModal(index);
+      return;
+    }
+  }
+  state.captureModalImages = [];
+  state.captureModalIndex = -1;
   openImageModal(image.dataset.previewImage, image.dataset.previewCaption || image.alt || "");
+  updateImageModalNavigation();
 }
 
 function openImageModal(src, caption) {
   if (!elements.imageModal || !elements.imageModalImg) {
     return;
   }
+  ensureImageModalControls();
   elements.imageModalImg.src = src;
   elements.imageModalImg.alt = caption || "증빙 이미지 확대보기";
+  const captionElement = elements.imageModal.querySelector("[data-image-modal-caption]");
+  if (captionElement) captionElement.textContent = caption || "";
   elements.imageModal.hidden = false;
+}
+
+function openCaptureImageModal(index) {
+  const image = state.captureProofPreviewImages[index];
+  if (!image) return;
+  state.captureModalImages = state.captureProofPreviewImages;
+  state.captureModalIndex = index;
+  openImageModal(image.dataUri, captureProofCaption(image));
+  updateImageModalNavigation();
 }
 
 function closeImageModal() {
@@ -2176,12 +2952,65 @@ function closeImageModal() {
   }
   elements.imageModal.hidden = true;
   elements.imageModalImg.removeAttribute("src");
+  state.captureModalImages = [];
+  state.captureModalIndex = -1;
+  updateImageModalNavigation();
+}
+
+function ensureImageModalControls() {
+  if (!elements.imageModal || elements.imageModal.querySelector("[data-image-modal-caption]")) return;
+  const prevButton = document.createElement("button");
+  prevButton.className = "image-modal-nav previous";
+  prevButton.type = "button";
+  prevButton.dataset.imageModalPrev = "true";
+  prevButton.textContent = "‹";
+  const nextButton = document.createElement("button");
+  nextButton.className = "image-modal-nav next";
+  nextButton.type = "button";
+  nextButton.dataset.imageModalNext = "true";
+  nextButton.textContent = "›";
+  const caption = document.createElement("div");
+  caption.className = "image-modal-caption";
+  caption.dataset.imageModalCaption = "true";
+  elements.imageModal.append(prevButton, nextButton, caption);
+  prevButton.addEventListener("click", () => moveCaptureImageModal(-1));
+  nextButton.addEventListener("click", () => moveCaptureImageModal(1));
+}
+
+function updateImageModalNavigation() {
+  if (!elements.imageModal) return;
+  const canMove = state.captureModalImages.length > 1 && state.captureModalIndex >= 0;
+  for (const button of elements.imageModal.querySelectorAll("[data-image-modal-prev], [data-image-modal-next]")) {
+    button.hidden = !canMove;
+  }
+}
+
+function moveCaptureImageModal(direction) {
+  if (!state.captureModalImages.length) return;
+  const nextIndex = (state.captureModalIndex + direction + state.captureModalImages.length) % state.captureModalImages.length;
+  openCaptureImageModal(nextIndex);
+}
+
+function handleImageModalKeydown(event) {
+  if (!elements.imageModal || elements.imageModal.hidden) return;
+  if (event.key === "Escape") {
+    closeImageModal();
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    moveCaptureImageModal(-1);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    moveCaptureImageModal(1);
+  }
 }
 
 function applySettings() {
   const defaultStart = elements.settingsStartInput.value.trim() || "태왕디아너스오페라";
   const defaultDestination = elements.settingsDestinationInput.value.trim() || "태왕디아너스오페라";
   const authorName = elements.settingsAuthorNameInput?.value?.trim() || "";
+  const userRole = document.querySelector("[data-settings-role].is-selected")?.dataset.settingsRole || readAppSettings().userRole || "manager";
   elements.startInput.value = defaultStart;
   elements.destinationInput.value = defaultDestination;
   elements.settingsPeopleInput.value = elements.coupangPeopleInput.value || "3";
@@ -2190,13 +3019,49 @@ function applySettings() {
     defaultStart,
     defaultDestination,
     welfarePeople: elements.settingsPeopleInput.value,
-    authorName
+    authorName,
+    userRole
   });
+  renderSettingsRoleButtons(userRole);
+  refreshSettingsPreview();
   renderCoupangLimitSummary();
   renderLedger();
   renderExcelPasteOutputs();
   scheduleAutoPreview();
   elements.settingsStatus.textContent = "설정을 저장하고 현재 입력값에 반영했습니다.";
+}
+
+function renderSettingsRoleButtons(role) {
+  const selectedRole = role || "manager";
+  elements.settingsRoleButtons?.forEach((button) => {
+    const isSelected = button.dataset.settingsRole === selectedRole;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
+}
+
+function refreshSettingsPreview() {
+  const routePreviewValues = {
+    start: elements.settingsStartInput?.value?.trim() || "기본 출발지",
+    end: elements.settingsDestinationInput?.value?.trim() || "기본 도착지"
+  };
+  elements.settingsRoutePreviews?.forEach((preview) => {
+    preview.textContent = routePreviewValues[preview.dataset.settingsRoutePreview] || "";
+  });
+  if (elements.settingsWelfarePreview) {
+    const people = Number(elements.coupangPeopleInput?.value) || 3;
+    elements.settingsWelfarePreview.textContent = `${(people * 50000).toLocaleString("ko-KR")}원`;
+  }
+}
+
+function refreshSettingsStoragePreview(path = "") {
+  const cleanPath = String(path || "").trim();
+  if (elements.settingsStoragePathPreview) {
+    elements.settingsStoragePathPreview.value = cleanPath;
+  }
+  if (elements.settingsStoragePreviewText) {
+    elements.settingsStoragePreviewText.textContent = cleanPath || "저장 폴더 선택 후 자료를 확인할 수 있습니다.";
+  }
 }
 
 async function resolveBrowserProofMonthDirectory(directoryHandle, monthKey) {
@@ -2362,8 +3227,27 @@ function base64ToBlob(base64, mimeType) {
 }
 
 function updateRunButton() {
-  elements.runButton.disabled = !canSave() || !canRunCapture({ groupCount: state.groups.length, running: state.running });
+  elements.runButton.disabled = !canSave()
+    || !hasSelectedCaptureTarget(currentCaptureTargets())
+    || !canRunCapture({ groupCount: state.groups.length, running: state.running });
   updateRetryButton();
+}
+
+function syncCaptureTargetsFromInputs() {
+  for (const input of elements.captureTargetInputs || []) {
+    if (input.value in state.captureTargets) {
+      state.captureTargets[input.value] = input.checked;
+    }
+  }
+}
+
+function currentCaptureTargets() {
+  syncCaptureTargetsFromInputs();
+  return { ...state.captureTargets };
+}
+
+function hasSelectedCaptureTarget(captureTargets) {
+  return Boolean(captureTargets?.toll || captureTargets?.route || captureTargets?.oil);
 }
 
 function updateRetryButton() {
@@ -2374,16 +3258,214 @@ function updateRetryButton() {
 }
 
 function clearLists() {
-  elements.successList.innerHTML = "";
-  elements.errorList.innerHTML = "";
+  state.captureResultLogs = [];
+  state.captureLogExpandedDates = {};
+  state.captureResultFilter = "all";
+  if (elements.successList) elements.successList.innerHTML = "";
+  if (elements.errorList) elements.errorList.innerHTML = "";
   elements.progressBar.value = 0;
+  renderCaptureLogPanel();
 }
 
 function fuelGroupKey(group) {
   return String(group?.fileBaseName || group?.dateKey || "").trim();
 }
 
-function captureCompletionStatus(group) {
+function fuelCaptureDraftKey(group) {
+  const key = fuelGroupKey(group);
+  return key ? `${key}:capture-draft` : "";
+}
+
+async function refreshMissingProofRowsForGroups(groups = []) {
+  if (!groups.length) return;
+  const groupKeys = new Set(groups.map(fuelGroupKey).filter(Boolean));
+  let removedFuel = 0;
+  let removedToll = 0;
+
+  for (const key of groupKeys) {
+    const group = groups.find((item) => fuelGroupKey(item) === key);
+    const groupFuelRows = state.fuelRows.filter((row) => !row.pendingFuelCapture && (row.key === key || row.key === `${key}:activity`));
+    const routePaths = uniqueProofPaths(groupFuelRows.map((row) => row.routeSavedPath));
+    const oilPaths = uniqueProofPaths(groupFuelRows.map((row) => row.oilSavedPath));
+    const routeExists = await proofEvidenceExists({
+      paths: routePaths,
+      fallback: group ? expectedProofCandidate(group, "route") : null
+    });
+    const oilExists = await proofEvidenceExists({
+      paths: oilPaths,
+      fallback: group ? expectedProofCandidate(group, "oil") : null
+    });
+    if (groupFuelRows.length && (!routeExists || !oilExists)) {
+      state.fuelRows = state.fuelRows.filter((row) => row.key !== key && row.key !== `${key}:activity`);
+      removedFuel += groupFuelRows.length;
+    }
+
+    const draftKey = group ? fuelCaptureDraftKey(group) : "";
+    const draft = state.fuelRows.find((row) => row.key === draftKey);
+    if (draft) {
+      const nextDraft = { ...draft };
+      if (draft.routeSavedPath) {
+        const draftRouteExists = await proofEvidenceExists({
+          paths: [draft.routeSavedPath],
+          fallback: group ? expectedProofCandidate(group, "route") : null
+        });
+        if (!draftRouteExists) {
+          nextDraft.distanceKm = 0;
+          nextDraft.routeSavedPath = "";
+        }
+      }
+      if (draft.oilSavedPath) {
+        const draftOilExists = await proofEvidenceExists({
+          paths: [draft.oilSavedPath],
+          fallback: group ? expectedProofCandidate(group, "oil") : null
+        });
+        if (!draftOilExists) {
+          nextDraft.fuelPriceWon = 0;
+          nextDraft.oilSavedPath = "";
+        }
+      }
+      const hasDraftValue = nextDraft.distanceKm || nextDraft.fuelPriceWon || nextDraft.routeSavedPath || nextDraft.oilSavedPath;
+      const draftChanged = JSON.stringify(nextDraft) !== JSON.stringify(draft);
+      if (draftChanged || !hasDraftValue) {
+        state.fuelRows = hasDraftValue
+          ? state.fuelRows.map((row) => row.key === draftKey ? nextDraft : row)
+          : state.fuelRows.filter((row) => row.key !== draftKey);
+        removedFuel += 1;
+      }
+    }
+
+    const tollKey = `${key}:toll`;
+    const tollRows = state.tollRows.filter((row) => row.key === tollKey);
+    const tollPaths = uniqueProofPaths(tollRows.map((row) => row.savedPath));
+    const tollExists = await proofEvidenceExists({
+      paths: tollPaths,
+      fallback: group ? expectedProofCandidate(group, "toll") : null
+    });
+    if (tollRows.length && !tollExists) {
+      state.tollRows = state.tollRows.filter((row) => row.key !== tollKey);
+      removedToll += tollRows.length;
+    }
+  }
+
+  if (removedFuel) writeLocalEntries(FUEL_ROWS_STORAGE_KEY, state.fuelRows);
+  if (removedToll) writeLocalEntries(TOLL_ROWS_STORAGE_KEY, state.tollRows);
+  if (removedFuel || removedToll) {
+    renderFuelOutput();
+    addError(`삭제된 증빙자료 ${removedFuel + removedToll}건을 확인했습니다. 누락된 항목은 다시 캡처합니다.`);
+  }
+}
+
+function uniqueProofPaths(paths = []) {
+  return [...new Set(paths.map((path) => String(path || "").trim()).filter(Boolean))];
+}
+
+async function proofEvidenceExists({ paths = [], fallback = null } = {}) {
+  const knownPaths = uniqueProofPaths(paths);
+  if (knownPaths.length) {
+    return (await Promise.all(knownPaths.map((path) => proofPathExists(path)))).every(Boolean);
+  }
+  if (!fallback) return false;
+  return proofCandidateExists(fallback);
+}
+
+function expectedProofCandidate(group, type) {
+  if (!group?.monthKey) return null;
+  if (type === "route") {
+    return {
+      type,
+      monthKey: group.monthKey,
+      folder: proofSubfolder("route"),
+      fileName: `${fuelGroupKey(group)}.png`
+    };
+  }
+  if (type === "oil") {
+    return {
+      type,
+      monthKey: group.monthKey,
+      folder: proofSubfolder("oil"),
+      fileName: `oil-${group.dateKey}.png`
+    };
+  }
+  if (type === "toll") {
+    return {
+      type,
+      monthKey: group.monthKey,
+      folder: HIPASS_TOLL_FOLDER,
+      fileName: `toll-${group.dateKey}.png`
+    };
+  }
+  return null;
+}
+
+async function proofCandidateExists(candidate) {
+  if (!candidate) return false;
+  const relativePath = [candidate.monthKey, candidate.folder, candidate.fileName].filter(Boolean).join("/");
+  if (state.directoryHandle) {
+    return browserProofPathExists(relativePath);
+  }
+  return serverProofCandidateExists(candidate);
+}
+
+async function proofPathExists(path) {
+  if (!path) return false;
+  if (state.directoryHandle && !isLikelyAbsolutePath(path)) {
+    return browserProofPathExists(path);
+  }
+  return serverProofPathExists(path);
+}
+
+function isLikelyAbsolutePath(path) {
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("\\\\") || path.startsWith("/");
+}
+
+async function serverProofPathExists(path) {
+  try {
+    const response = await fetch("/api/travel-proof/proof-file-exists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: [path] })
+    });
+    const data = await response.json();
+    return Boolean(data.ok && data.result?.paths?.[path]);
+  } catch {
+    return true;
+  }
+}
+
+async function serverProofCandidateExists(candidate) {
+  try {
+    const response = await fetch("/api/travel-proof/proof-file-exists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidates: [candidate] })
+    });
+    const data = await response.json();
+    const key = candidateKey(candidate);
+    return Boolean(data.ok && data.result?.candidates?.[key]);
+  } catch {
+    return true;
+  }
+}
+
+function candidateKey(candidate) {
+  return [candidate?.monthKey, candidate?.folder, candidate?.fileName].filter(Boolean).join("/");
+}
+
+async function browserProofPathExists(path) {
+  try {
+    const parts = String(path || "").split(/[\\/]/).filter(Boolean);
+    let directory = state.directoryHandle;
+    for (const part of parts.slice(0, -1)) {
+      directory = await directory.getDirectoryHandle(part);
+    }
+    await directory.getFileHandle(parts.at(-1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function captureCompletionStatus(group, captureTargets = currentCaptureTargets()) {
   const key = fuelGroupKey(group);
   if (!key) {
     return { complete: false, routeOilComplete: false, tollComplete: false };
@@ -2392,8 +3474,11 @@ function captureCompletionStatus(group) {
   const tollKeys = new Set(state.tollRows.map((row) => row.key));
   const routeOilComplete = keys.has(key) && keys.has(`${key}:activity`);
   const tollComplete = tollKeys.has(`${key}:toll`);
+  const routeOilSelected = Boolean(captureTargets.route || captureTargets.oil);
+  const selectedRouteOilComplete = !routeOilSelected || routeOilComplete;
+  const selectedTollComplete = !captureTargets.toll || tollComplete;
   return {
-    complete: routeOilComplete && tollComplete,
+    complete: hasSelectedCaptureTarget(captureTargets) && selectedRouteOilComplete && selectedTollComplete,
     routeOilComplete,
     tollComplete
   };
@@ -2404,8 +3489,10 @@ function hasCompletedFuelRows(group) {
 }
 
 function upsertFuelRow(fuelRow) {
+  const isCompletedFuelRow = fuelRow?.key && !fuelRow.pendingFuelCapture;
+  const draftKey = isCompletedFuelRow ? fuelCaptureDraftKey({ fileBaseName: String(fuelRow.key).replace(/:activity$/, "") }) : "";
   state.fuelRows = state.fuelRows
-    .filter((row) => row.key !== fuelRow.key)
+    .filter((row) => row.key !== fuelRow.key && (!draftKey || row.key !== draftKey))
     .concat(fuelRow)
     .sort((left, right) => (left.dateKey.localeCompare(right.dateKey) || left.key.localeCompare(right.key)));
   writeLocalEntries(FUEL_ROWS_STORAGE_KEY, state.fuelRows);
@@ -2432,6 +3519,9 @@ function upsertTollRows(tollRows) {
 }
 
 function addTollCaptureStatus(group, result, retry = false) {
+  if (!result.tollSelected) {
+    return;
+  }
   const prefix = `${group.dateKey} ${retry ? "재실행 " : ""}`;
   if (result.tollSkipped) {
     addSuccess(`${prefix}통행료 이미 처리 완료`);
@@ -2451,11 +3541,12 @@ function addTollCaptureStatus(group, result, retry = false) {
 }
 
 function addCaptureStatusMessages(group, result, retry = false) {
-  const prefix = `${group.dateKey} ${retry ? "재실행 " : ""}`;
-  if (result.routeSkipped && result.oilSkipped) {
-    addSuccess(`${prefix}거리·유류대 이미 처리 완료`);
+  if (!result.routeSelected && !result.oilSelected) {
     return;
   }
+  const prefix = `${group.dateKey} ${retry ? "재실행 " : ""}`;
+  if (result.routeSkipped) addSuccess(`${prefix}거리 이미 처리 완료`);
+  if (result.oilSkipped) addSuccess(`${prefix}유가 이미 처리 완료`);
   if (result.routeSavedPath) {
     addSuccess(`${prefix}거리 저장 완료: ${result.routeSavedPath}`);
   }
@@ -2512,7 +3603,7 @@ function renderExcelPasteOutputs() {
   const cardFieldVisitRows = buildCorporateCardFieldVisitPasteRows(visibleCorporateEntries);
   const generalRows = buildGeneralTravelPasteRows(filterRowsByMonth(state.generalTravelEntries, monthKey)).concat(cardGeneralRows);
   const tollOutputRows = filterRowsByMonth(state.tollRows, monthKey).filter((row) => row.text);
-  const fieldVisitRows = sortPasteRowsByDate(filterRowsByMonth(state.fuelRows, monthKey).concat(tollOutputRows, cardFieldVisitRows))
+  const fieldVisitRows = sortPasteRowsByDate(filterRowsByMonth(state.fuelRows, monthKey).filter((row) => row.text).concat(tollOutputRows, cardFieldVisitRows))
     .map(normalizeTravelSheetClipboardRow);
   const corporateRows = buildCorporateCardPasteRows(visibleCorporateEntries);
 
@@ -2592,8 +3683,16 @@ function toggleCollapsiblePanel(heading) {
   if (!panel) {
     return;
   }
-  const isCollapsed = panel.classList.toggle("is-collapsed");
-  heading.setAttribute("aria-expanded", String(!isCollapsed));
+  const groupName = panel.dataset.collapseGroup;
+  const nextCollapsed = !panel.classList.contains("is-collapsed");
+  const panels = groupName
+    ? [...document.querySelectorAll(`[data-collapsible-panel][data-collapse-group="${CSS.escape(groupName)}"]`)]
+    : [panel];
+  for (const targetPanel of panels) {
+    targetPanel.classList.toggle("is-collapsed", nextCollapsed);
+    const targetHeading = targetPanel.querySelector("[data-collapsible-heading]");
+    targetHeading?.setAttribute("aria-expanded", String(!nextCollapsed));
+  }
 }
 
 function isInteractivePanelTarget(target) {
@@ -4021,12 +5120,12 @@ function renderCoupangLimitSummaryOld() {
   const supplyRemaining = supplyLimit - supplyUsed;
   const welfarePercent = usagePercent(welfareUsed, welfareLimit);
   const supplyPercent = usagePercent(supplyUsed, supplyLimit);
-  elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
+  if (elements.welfareLimitCard) elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
   elements.welfareRemainingCard.textContent = `${formatWon(welfareRemaining)}원`;
   if (elements.welfareUsageText) elements.welfareUsageText.textContent = `사용 ${formatWon(welfareUsed)}원 / 한도 ${formatWon(welfareLimit)}원`;
   if (elements.welfareUsagePercent) elements.welfareUsagePercent.textContent = `${welfarePercent}%`;
   if (elements.welfareProgressBar) elements.welfareProgressBar.style.width = `${welfarePercent}%`;
-  elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
+  if (elements.supplyLimitCard) elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
   elements.supplyRemainingCard.textContent = `${formatWon(supplyRemaining)}원`;
   if (elements.supplyUsageText) elements.supplyUsageText.textContent = `사용 ${formatWon(supplyUsed)}원 / 한도 ${formatWon(supplyLimit)}원`;
   if (elements.supplyUsagePercent) elements.supplyUsagePercent.textContent = `${supplyPercent}%`;
@@ -4059,12 +5158,12 @@ function renderCoupangLimitSummary() {
 
   if (elements.welfarePeriodTitle) elements.welfarePeriodTitle.textContent = `${quarter.shortLabel} 조활비`;
   if (elements.supplyPeriodTitle) elements.supplyPeriodTitle.textContent = `${periodMonthLabel(monthKey)} 소모품비`;
-  elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
+  if (elements.welfareLimitCard) elements.welfareLimitCard.textContent = `${formatWon(welfareLimit)}원`;
   elements.welfareRemainingCard.textContent = `${formatWon(welfareRemaining)}원`;
   if (elements.welfareUsageText) elements.welfareUsageText.textContent = `사용 ${formatWon(welfareUsed)}원 / 한도 ${formatWon(welfareLimit)}원`;
   if (elements.welfareUsagePercent) elements.welfareUsagePercent.textContent = `${welfarePercent}%`;
   if (elements.welfareProgressBar) elements.welfareProgressBar.style.width = `${welfarePercent}%`;
-  elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
+  if (elements.supplyLimitCard) elements.supplyLimitCard.textContent = `${formatWon(supplyLimit)}원`;
   elements.supplyRemainingCard.textContent = `${formatWon(supplyRemaining)}원`;
   if (elements.supplyUsageText) elements.supplyUsageText.textContent = `사용 ${formatWon(supplyUsed)}원 / 한도 ${formatWon(supplyLimit)}원`;
   if (elements.supplyUsagePercent) elements.supplyUsagePercent.textContent = `${supplyPercent}%`;
@@ -4121,27 +5220,36 @@ function formatWon(value) {
 }
 
 function addSuccess(message) {
-  const item = document.createElement("li");
-  item.className = "success";
-  item.textContent = message;
-  elements.successList.append(item);
+  rememberCaptureLog(message, "success");
+}
+
+function handleExcelWorkflowCardClick(event) {
+  const card = event.target.closest("[data-excel-workflow-target]");
+  if (!card) return;
+  const target = card.dataset.excelWorkflowTarget;
+  const panel = document.querySelector(`[data-excel-step-panel="${target}"]`);
+  if (!panel) return;
+  panel.classList.remove("is-collapsed");
+  const heading = panel.querySelector("[data-collapsible-heading]");
+  if (heading) heading.setAttribute("aria-expanded", "true");
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function addError(message) {
-  const item = document.createElement("li");
-  item.className = "error";
-  item.textContent = message;
-  elements.errorList.append(item);
+  rememberCaptureLog(message, "error");
 }
 
 function setBusy(isBusy, label = "") {
   elements.previewButton.disabled = isBusy;
   elements.chooseFolderButton.disabled = isBusy || (!("showDirectoryPicker" in window) && !window.desktopBridge);
-  elements.runButton.disabled = isBusy || !canRunCapture({ groupCount: state.groups.length, running: state.running });
+  elements.runButton.disabled = isBusy
+    || !hasSelectedCaptureTarget(currentCaptureTargets())
+    || !canRunCapture({ groupCount: state.groups.length, running: state.running });
   elements.createPptButton.disabled = isBusy;
   elements.previewPptButton.disabled = isBusy;
   if (elements.pptMonthInput) elements.pptMonthInput.disabled = isBusy;
-  elements.refreshStorageButton.disabled = isBusy;
+  if (elements.refreshStorageButton) elements.refreshStorageButton.disabled = isBusy;
+  if (elements.refreshStoragePreviewButton) elements.refreshStoragePreviewButton.disabled = isBusy;
   if (elements.scanDuplicatesButton) elements.scanDuplicatesButton.disabled = isBusy;
   if (elements.clearFolderButton) elements.clearFolderButton.disabled = isBusy;
   if (elements.deleteDuplicatesButton) elements.deleteDuplicatesButton.disabled = isBusy || !state.duplicateCandidates.length;
@@ -4173,11 +5281,11 @@ function usagePercent(used, limit) {
 
 function loadSample() {
   elements.tableInput.value = [
-    "대리점명\tPOS코드\tPOS명\t유형요약\tPOS주소\t날짜\t시간",
-    "하이라이트 대구\tP045763\t동성로3가_중앙파출소점\t위탁지원\t대구 중구 동성로 1 (동성로3가)\t05/08(금)\t오후",
-    "(주)후(WHO)\tP267248\t율하동_율하광장점\t위탁지원\t대구 동구 안심로22길 46 (율하동)\t05/08(금)\t오전",
-    "(주)후(WHO)\tP571347\t양덕동_포항법원사거리점\t일반판매점\t경북 포항시 북구 장량중앙로 52 LGU+동 1층(양덕동)\t05/12(화)\t오후",
-    "(주)후(WHO)\tP320414\t두호동_두호사거리점\t위탁지원\t경북 포항시 북구 두호로 32 (두호동)\t05/12(화)\t오전"
+    "NO.\t담당\t영업팀\t대리점코드\t대리점명\tPOS코드\tPOS명\t유형요약\tPOS주소\t대표자\t대표자 연락처\t마케터\t마케터 연락처\t지사\t강사\t날짜\t시간\t비고\tFamily\tPet\tEasy2\tKids\t인테리어유형\t지역\t50km↑\t윈도우시트",
+    "313\t경북\t경북동부소매\t316622\t㈜후(WHO)\tP005327\t중방동_다이소점\t위탁지원\t경북 경산시 중앙로 73 (중방동)\t김샘플\t010-0000-1001\t이샘플\t010-0000-2001\t대구\t배정환\t07/02(목)\t오후\t\t\t\t\t\t01.스마트\t경북 경산시\t\t",
+    "314\t경북\t경북동부소매\t316622\t㈜후(WHO)\tP301664\t하양읍_가톨릭대점\t일반전매점\t경북 경산시 하양읍 하양로 58\t김샘플\t010-0000-1001\t이샘플\t010-0000-2001\t대구\t배정환\t07/02(목)\t오전\t\t\tO\tO\t\t11. 고객경험혁신 A\t경북 경산시\t\t",
+    "330\t경북\t경북북부소매\t312739\t빌리프\tP810343\t감삼동_서남시장점\t일반전매점\t대구 달서구 달구벌대로 1649 감삼동 (감삼동)\t박샘플\t010-0000-1002\t정샘플\t010-0000-2002\t대구\t배정환\t07/03(금)\t오후\t\t\t\t\t\t01.스마트\t대구 달서구\t\t",
+    "331\t경북\t경북북부소매\t312790\t성원\tP203181\t감삼동_본리초등학교점\t임차지원2\t대구 달서구 와룡로 123 101동 1층 1호 (감삼동, 죽전역동화아이위시)\t최샘플\t010-0000-1003\t한샘플\t010-0000-2003\t대구\t배정환\t07/03(금)\t오전\t\t\t\t\t\t\t대구 달서구\t\t"
   ].join("\n");
   scheduleAutoPreview();
 }

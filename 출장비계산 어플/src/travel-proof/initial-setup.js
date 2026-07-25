@@ -4,14 +4,11 @@ const SUPPLIES_MONTHLY_BUDGET = 50000;
 const ACTIVITY_BUDGET_PER_PERSON = 50000;
 
 const ASSET_BASE = "./src/assets/onboarding";
-const ASSET_VERSION = "clean-20260703";
+const ASSET_VERSION = "role-pair-20260724";
 const ASSETS = Object.freeze({
   roleManager: `${ASSET_BASE}/role-manager.png?v=${ASSET_VERSION}`,
   roleInstructor: `${ASSET_BASE}/role-instructor.png?v=${ASSET_VERSION}`,
-  avatarMale: `${ASSET_BASE}/avatar-male.png?v=${ASSET_VERSION}`,
-  avatarFemale: `${ASSET_BASE}/avatar-female.png?v=${ASSET_VERSION}`,
   folderCute: `${ASSET_BASE}/folder-cute.png?v=${ASSET_VERSION}`,
-  routeCar: `${ASSET_BASE}/route-car.png?v=${ASSET_VERSION}`,
   completeCheck: `${ASSET_BASE}/complete-check.png?v=${ASSET_VERSION}`,
   excelIcon: `${ASSET_BASE}/excel-icon.png?v=${ASSET_VERSION}`,
   pptIcon: `${ASSET_BASE}/ppt-icon.png?v=${ASSET_VERSION}`
@@ -61,7 +58,6 @@ export function createInitialSetupState(defaults = {}) {
   return {
     currentStep: 0,
     userRole: saved.userRole || "manager",
-    gender: saved.gender || "male",
     userName: saved.userName || defaults.userName || "배정환",
     branchName: saved.branchName || defaults.branchName || "네오아이즈 대구지사",
     defaultStartLocation: saved.defaultStartLocation || defaults.defaultStartLocation || "네오아이즈 대구교육장",
@@ -126,7 +122,6 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
   function complete() {
     const setup = {
       userRole: state.userRole,
-      gender: state.gender,
       userName: state.userName.trim() || "사용자",
       branchName: state.branchName.trim(),
       defaultStartLocation: state.defaultStartLocation.trim(),
@@ -174,20 +169,10 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
         <strong>${escapeHtml(title)}</strong>
         ${description ? `<small>${escapeHtml(description)}</small>` : ""}
       </button>`;
-    const genderCard = (gender, image, title) => `
-      <button type="button" class="setup-select-card setup-gender-card ${state.gender === gender ? "is-selected" : ""}" data-setup-gender="${gender}">
-        <span class="setup-select-check" aria-hidden="true"><i class="ph-fill ph-check"></i></span>
-        <img src="${image}" alt="${escapeHtml(title)} 아바타" class="setup-gender-avatar" />
-        <strong>${escapeHtml(title)}</strong>
-      </button>`;
     return `
       <div class="setup-role-grid">
         ${roleCard("manager", ASSETS.roleManager, "선임 / 팀장", "각 지사별 예산을 추가 설정할 수 있습니다.")}
         ${roleCard("instructor", ASSETS.roleInstructor, "강사", "")}
-      </div>
-      <div class="setup-gender-grid">
-        ${genderCard("male", ASSETS.avatarMale, "남성")}
-        ${genderCard("female", ASSETS.avatarFemale, "여성")}
       </div>
       <p class="setup-footnote"><i class="ph ph-info"></i>역할은 설정 메뉴에서 변경할 수 있습니다.</p>`;
   }
@@ -247,10 +232,49 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
   }
 
   function renderTripStep() {
+    const startLocation = state.defaultStartLocation.trim() || "기본 출발지";
+    const endLocation = state.defaultEndLocation.trim() || "기본 도착지";
     return `
       <section class="setup-card setup-trip-card">
-        <img src="${ASSETS.routeCar}" alt="출발지에서 도착지로 이동하는 자동차 일러스트" class="setup-trip-image" />
         <h3 class="setup-trip-title">기본 출장 설정</h3>
+        <div class="setup-route-example" aria-label="네이버 거리측정 입력 예시">
+          <div class="setup-route-header">
+            <strong>네이버 길찾기 입력 예시</strong>
+            <span>거리측정 캡쳐 기본값</span>
+          </div>
+          <div class="setup-route-tabs" aria-hidden="true">
+            <span>대중교통</span>
+            <strong><i class="ph-fill ph-car"></i>자동차</strong>
+            <span>도보</span>
+            <span>자전거</span>
+          </div>
+          <div class="setup-route-box">
+            <div class="setup-route-row is-start">
+              <span class="setup-route-dot"></span>
+              <strong data-setup-route-preview="start">${escapeHtml(startLocation)}</strong>
+              <small>출발지</small>
+            </div>
+            <div class="setup-route-row is-waypoint">
+              <span class="setup-route-dot"></span>
+              <strong>방문 매장 또는 경유지 1</strong>
+              <small>경유지</small>
+            </div>
+            <div class="setup-route-row is-waypoint">
+              <span class="setup-route-dot"></span>
+              <strong>방문 매장 또는 경유지 2</strong>
+              <small>경유지</small>
+            </div>
+            <div class="setup-route-row is-end">
+              <span class="setup-route-dot"></span>
+              <strong data-setup-route-preview="end">${escapeHtml(endLocation)}</strong>
+              <small>도착지</small>
+            </div>
+          </div>
+          <div class="setup-route-footer">
+            <span><i class="ph ph-plus"></i>경유지</span>
+            <strong>길찾기 <i class="ph ph-caret-right"></i></strong>
+          </div>
+        </div>
         <div class="setup-field-stack">
           <label class="setup-field">
             <span>기본 출발지</span>
@@ -267,7 +291,7 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
             </span>
           </label>
         </div>
-        <p class="setup-infobox"><i class="ph-fill ph-info"></i>네이버 거리측정 캡처 시 기본값으로 불러오며, 필요 시 언제든 수정할 수 있습니다.</p>
+        <p class="setup-infobox"><i class="ph-fill ph-info"></i>현장지원 또는 출장 시 네이버 거리측정 캡쳐에 기본값으로 사용될 출발지와 도착지를 작성해주세요. 추후 언제든 수정할 수 있습니다.</p>
       </section>`;
   }
 
@@ -424,16 +448,17 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
     if (badge) badge.hidden = !state.storagePath.trim();
   }
 
+  function refreshRoutePreview() {
+    const startPreview = overlay.querySelector('[data-setup-route-preview="start"]');
+    const endPreview = overlay.querySelector('[data-setup-route-preview="end"]');
+    if (startPreview) startPreview.textContent = state.defaultStartLocation.trim() || "기본 출발지";
+    if (endPreview) endPreview.textContent = state.defaultEndLocation.trim() || "기본 도착지";
+  }
+
   overlay.addEventListener("click", async (event) => {
     const roleCard = event.target.closest("[data-setup-role]");
     if (roleCard) {
       state.userRole = roleCard.dataset.setupRole;
-      render();
-      return;
-    }
-    const genderCard = event.target.closest("[data-setup-gender]");
-    if (genderCard) {
-      state.gender = genderCard.dataset.setupGender;
       render();
       return;
     }
@@ -479,6 +504,9 @@ export function initInitialSetup({ mount, defaults = {}, selectDirectory, onComp
     }
     if (field.dataset.setupField === "storagePath") {
       refreshStorageReady();
+    }
+    if (field.dataset.setupField === "defaultStartLocation" || field.dataset.setupField === "defaultEndLocation") {
+      refreshRoutePreview();
     }
   });
 

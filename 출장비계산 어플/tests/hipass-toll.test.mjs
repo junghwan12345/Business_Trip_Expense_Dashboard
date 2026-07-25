@@ -39,6 +39,12 @@ test("parseHipassReceiptText reads supply amount when card amount label is absen
   assert.equal(result.amountWon, 2100);
 });
 
+test("parseHipassReceiptText reads common toll amount labels", () => {
+  const result = parseHipassReceiptText("2026년 7월 3일 15시 20분\n이용금액 : 4,200원", "2026-07-03");
+
+  assert.equal(result.amountWon, 4200);
+});
+
 test("parseHipassReceiptText ignores receipts from other dates", () => {
   const result = parseHipassReceiptText(sampleReceiptText, "2026-06-05");
 
@@ -65,6 +71,21 @@ test("parseHipassReceiptText excludes receipts issued from 21:00", () => {
   assert.equal(result.count, 1);
   assert.equal(result.excludedCount, 2);
   assert.equal(result.amountWon, 1800);
+});
+
+test("parseHipassReceiptText returns excluded count when every receipt is after 21:00", () => {
+  const result = parseHipassReceiptText([
+    "영수증",
+    "2026년 7월 3일 23시 9분",
+    "1종 1,200 원 카드)",
+    "영수증",
+    "2026년 7월 3일 23시 6분",
+    "1종 1,200 원 카드)"
+  ].join("\n"), "2026-07-03");
+
+  assert.equal(result.count, 0);
+  assert.equal(result.excludedCount, 2);
+  assert.equal(result.amountWon, 0);
 });
 
 test("buildTollExpensePasteRows creates field visit toll rows", () => {

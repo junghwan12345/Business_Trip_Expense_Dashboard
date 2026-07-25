@@ -22,7 +22,7 @@ const DEBUG_PORT = 9222;
 const COUPANG_ORDER_LIST_URL = "https://mc.coupang.com/ssr/desktop/order/list";
 const HIPASS_LOGIN_URL = "https://www.hipass.co.kr/main.do";
 const HIPASS_USAGE_URL = "https://www.hipass.co.kr/usepculr/InitUsePculrTabSearch.do";
-const HIPASS_LOGIN_WAIT_MS = 5 * 60 * 1000;
+const HIPASS_LOGIN_WAIT_MS = 3 * 60 * 1000;
 const COUPANG_LOGIN_WAIT_MS = 5 * 60 * 1000;
 const COUPANG_ORDER_SEARCH_PAGES = 12;
 const COUPANG_ORDER_SEARCH_SCROLLS = 14;
@@ -295,15 +295,17 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
 }
 
 export async function captureHipassTollReceipt(dateKey, options = {}) {
-  const fastCapture = isFastCaptureEnabled(options);
   const endpoint = await ensureChrome(options);
-  const tab = await acquireAutomationTab(endpoint, "hipass", fastCapture);
+  const tab = await acquireAutomationTab(endpoint, "hipass", false);
   const client = await CdpClient.connect(tab.webSocketDebuggerUrl, tab.id);
 
   try {
     await client.call("Page.enable");
     await client.call("Runtime.enable");
     await navigate(client, HIPASS_LOGIN_URL);
+    await bringPageToFront(client);
+    await closeHipassPagePopups(client);
+    await openHipassUsagePage(client);
     await waitForHipassLogin(client);
     await openHipassUsagePage(client);
     const popupTarget = await queryHipassUsageDate(client, dateKey);
@@ -319,49 +321,7 @@ export async function captureHipassTollReceipt(dateKey, options = {}) {
       }
       const textResult = await evaluate(receiptClient, "document.body.innerText", true);
       const bodyText = String(textResult.result.result.value || "");
-      if (isHipassNoResultText(bodyText)) {
-        return {
-          dateKey,
-          fileName: `toll-${dateKey}.png`,
-          amountWon: 0,
-          count: 0,
-          noToll: true,
-          summaryText: bodyText.slice(0, 2000)
-        };
-      }
-
-      const receiptData = parseHipassReceiptText(bodyText, dateKey, { excludeFromHour: 21 });
-      if (!receiptData.amountWon) {
-        return {
-          dateKey,
-          fileName: `toll-${dateKey}.png`,
-          amountWon: 0,
-          count: 0,
-          excludedCount: receiptData.excludedCount || 0,
-          noToll: true,
-          summaryText: bodyText.slice(0, 2000)
-        };
-      }
-
-      await filterHipassReceiptPage(receiptClient, dateKey, { excludeFromHour: 21 });
-      const clip = await getHipassReceiptClip(receiptClient);
-      const screenshot = await receiptClient.call("Page.captureScreenshot", {
-        format: "png",
-        fromSurface: true,
-        clip
-      });
-
-      return {
-        dateKey,
-        fileName: `toll-${dateKey}.png`,
-        imageBase64: screenshot.result.data,
-        amountWon: receiptData.amountWon,
-        count: receiptData.count,
-        excludedCount: receiptData.excludedCount || 0,
-        entries: receiptData.entries,
-        noToll: false,
-        summaryText: bodyText.slice(0, 2000)
-      };
+      return await captureHipassReceiptResult(receiptClient, dateKey, bodyText);
     } finally {
       if (popupTarget) {
         await receiptClient.close();
@@ -370,8 +330,149 @@ export async function captureHipassTollReceipt(dateKey, options = {}) {
     }
   } finally {
     await client.close();
-    await releaseAutomationTab(tab, "hipass", fastCapture);
+    await releaseAutomationTab(tab, "hipass", false);
   }
+}
+
+export async function captureHipassTollReceipts(dateKeys = [], options = {}) {
+  const uniqueDateKeys = [...new Set(dateKeys.map((dateKey) => String(dateKey || "").trim()).filter(Boolean))].sort();
+  if (!uniqueDateKeys.length) return { results: [] };
+
+  const endpoint = await ensureChrome(options);
+  const tab = await acquireAutomationTab(endpoint, "hipass", false);
+  const client = await CdpClient.connect(tab.webSocketDebuggerUrl, tab.id);
+
+  try {
+    await client.call("Page.enable");
+    await client.call("Runtime.enable");
+    await navigate(client, HIPASS_LOGIN_URL);
+    await bringPageToFront(client);
+    await closeHipassPagePopups(client);
+    await openHipassUsagePage(client);
+    await waitForHipassLogin(client);
+    await openHipassUsagePage(client);
+
+    await queryHipassUsageRange(client, uniqueDateKeys[0], uniqueDateKeys.at(-1), { openReceipt: false });
+    const usageTargets = await readHipassUsageTargets(client, uniqueDateKeys, { excludeFromHour: 21 });
+    const results = [];
+
+    for (const dateKey of uniqueDateKeys) {
+      const targets = usageTargets.filter((target) =>
+        target.dateKey === dateKey && !target.excluded && Number(target.amountWon) > 0
+      );
+      if (!targets.length) {
+        const excludedCount = usageTargets.filter((target) => target.dateKey === dateKey && target.excluded).length;
+        results.push({
+          dateKey,
+          fileName: `toll-${dateKey}.png`,
+          amountWon: 0,
+          count: 0,
+          excludedCount,
+          noToll: true,
+          summaryText: excludedCount ? "21시 이후 통행료는 제외되었습니다." : ""
+        });
+        continue;
+      }
+
+      const popupTarget = await printSelectedHipassUsageRows(client, targets);
+      if (!popupTarget) {
+        results.push({
+          dateKey,
+          fileName: `toll-${dateKey}.png`,
+          amountWon: 0,
+          count: 0,
+          noToll: true,
+          summaryText: "선택된 통행료 영수증 출력 팝업을 찾지 못했습니다."
+        });
+        continue;
+      }
+
+      const receiptClient = await CdpClient.connect(popupTarget.webSocketDebuggerUrl, popupTarget.id);
+      try {
+        await receiptClient.call("Page.enable");
+        await receiptClient.call("Runtime.enable");
+        await delay(1000);
+        const textResult = await evaluate(receiptClient, "document.body.innerText", true);
+        const bodyText = String(textResult.result.result.value || "");
+        results.push(await captureHipassReceiptResult(receiptClient, dateKey, bodyText));
+      } finally {
+        await receiptClient.close();
+        await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${popupTarget.id}`).catch(() => {});
+        await delay(500);
+      }
+    }
+
+    return { results };
+  } finally {
+    await client.close();
+    await releaseAutomationTab(tab, "hipass", false);
+  }
+}
+
+async function captureHipassReceiptResult(receiptClient, dateKey, bodyText) {
+  if (isHipassNoResultText(bodyText)) {
+    return {
+      dateKey,
+      fileName: `toll-${dateKey}.png`,
+      amountWon: 0,
+      count: 0,
+      noToll: true,
+      summaryText: bodyText.slice(0, 2000)
+    };
+  }
+
+  const receiptData = parseHipassReceiptText(bodyText, dateKey, { excludeFromHour: 21 });
+  if (!receiptData.amountWon) {
+    if (receiptData.excludedCount > 0 || bodyText.includes(dateKey.replace(/-/g, "년").slice(0, 5))) {
+      return {
+        dateKey,
+        fileName: `toll-${dateKey}.png`,
+        amountWon: 0,
+        count: 0,
+        excludedCount: receiptData.excludedCount || 0,
+        noToll: true,
+        summaryText: bodyText.slice(0, 2000)
+      };
+    }
+    return {
+      dateKey,
+      fileName: `toll-${dateKey}.png`,
+      amountWon: 0,
+      count: 0,
+      noToll: true,
+      summaryText: bodyText.slice(0, 2000)
+    };
+  }
+
+  await filterHipassReceiptPage(receiptClient, dateKey, { excludeFromHour: 21 });
+  const clip = await getHipassReceiptClip(receiptClient);
+  const screenshot = await receiptClient.call("Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    clip: { ...clip, scale: 2 }
+  });
+
+  return {
+    dateKey,
+    fileName: `toll-${dateKey}.png`,
+    imageBase64: screenshot.result.data,
+    amountWon: receiptData.amountWon,
+    count: receiptData.count,
+    excludedCount: receiptData.excludedCount || 0,
+    entries: receiptData.entries,
+    noToll: false,
+    summaryText: bodyText.slice(0, 2000)
+  };
+}
+
+export async function resetAutomationState() {
+  const targetIds = [...new Set(reusableTabIds.values())];
+  reusableTabIds.clear();
+  oilCaptureCache.clear();
+  await Promise.all(targetIds.map((targetId) =>
+    fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${targetId}`).catch(() => {})
+  ));
+  return { closedTabs: targetIds.length };
 }
 
 async function captureCoupangDateReceipts(client, dateKey, orderIndex = new Map()) {
@@ -485,18 +586,29 @@ function coupangReceiptCaptureKey(receipt) {
 
 async function waitForHipassLogin(client) {
   await waitFor(client, "document.body && document.body.innerText", 15000, "하이패스 메인 화면");
-  const initialState = await readHipassLoginState(client);
+  let initialState = await readHipassLoginState(client);
+  if (!initialState.hasLoginForm && !initialState.hasLoginPage && !initialState.hasLoginButton) {
+    await closeHipassPagePopups(client);
+    initialState = await readHipassLoginState(client);
+  }
   if (initialState.loggedIn) {
     return;
   }
   await bringPageToFront(client);
   const loggedIn = await waitUntil(async () => (await readHipassLoginState(client)).loggedIn, HIPASS_LOGIN_WAIT_MS);
   if (!loggedIn) {
-    throw new Error("로그인 필요: 열린 하이패스 창에서 직접 로그인해 주세요. 로그인 완료까지 기다렸지만 확인하지 못했습니다.");
+    throw new Error("통행료 홈페이지 로그인이 확인되지 않았습니다. 3분 안에 로그인되지 않아 중단했습니다. 로그인 후 다시 시도해 주세요.");
   }
+  await closeHipassPagePopups(client);
 }
 
 async function openHipassUsagePage(client) {
+  const loginState = await readHipassLoginState(client);
+  if (loginState.hasLoginForm || loginState.hasLoginPage) {
+    await bringPageToFront(client);
+    return;
+  }
+  await closeHipassPagePopups(client);
   const hrefResult = await evaluate(client, "location.href", true).catch(() => null);
   const href = String(hrefResult?.result?.result?.value || "");
   if (!href.includes("/usepculr/InitUsePculrTabSearch.do")) {
@@ -504,16 +616,93 @@ async function openHipassUsagePage(client) {
     if (clicked) {
       await waitFor(
         client,
-        "location.href.includes('/usepculr/InitUsePculrTabSearch.do') || document.body.innerText.includes('하이패스 카드 사용내역 조회')",
+        `(() => {
+          const visible = (element) => {
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+          };
+          const loginControl = document.querySelector('input[type=password], #per_user_id, #per_user_pw');
+          const loginButton = [...document.querySelectorAll('a,button,input[type=button],input[type=submit],[role=button]')]
+            .some((element) => {
+              if (!visible(element)) return false;
+              const text = (element.innerText || element.value || element.title || element.getAttribute('aria-label') || '').replace(/\\s+/g, '');
+              return /로그인|개인로그인|법인로그인|login/i.test(text);
+            });
+          return location.href.includes('/usepculr/InitUsePculrTabSearch.do') ||
+            location.href.toLowerCase().includes('login') ||
+            document.querySelector('#sDate, #eDate, #sDate_view, #eDate_view, #lookupBtn') ||
+            loginControl ||
+            loginButton ||
+            typeof window.fn_search_usepculr === 'function';
+        })()`,
         20000,
         "하이패스 사용내역 조회 화면"
       );
+      const clickedState = await readHipassLoginState(client);
+      if (clickedState.hasLoginForm || clickedState.hasLoginPage || clickedState.hasLoginButton) {
+        await bringPageToFront(client);
+        return;
+      }
     } else {
       await navigate(client, HIPASS_USAGE_URL);
+      await bringPageToFront(client);
       await waitForHipassLogin(client);
     }
   }
+  const nextLoginState = await readHipassLoginState(client);
+  if (nextLoginState.hasLoginForm || nextLoginState.hasLoginPage || nextLoginState.hasLoginButton) {
+    await bringPageToFront(client);
+    return;
+  }
+  await closeHipassPagePopups(client);
+  if (!(await isHipassUsageSearchPage(client))) {
+    await navigate(client, HIPASS_USAGE_URL);
+    await bringPageToFront(client);
+    await waitForHipassLogin(client);
+  }
   await ensureHipassUsagePageReady(client);
+}
+
+async function closeHipassPagePopups(client) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await evaluate(client, `
+      (() => {
+        const visible = (element) => {
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        };
+        const normalize = (value) => String(value || '').replace(/\\s+/g, '').toLowerCase();
+        const closeWords = ['닫기', '확인', '오늘하루보지않기', '오늘하루열지않음', '창닫기', 'close'];
+        const hasLoginControl = (element) => Boolean(element?.querySelector?.('input[type=password], #per_user_id, #per_user_pw, input[name=per_user_id], input[name=user_id]'));
+        const candidates = [...document.querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],.btn_close,.close')]
+          .map((element) => ({
+            element,
+            text: normalize(element.innerText || element.value || element.title || element.getAttribute('aria-label') || element.className || ''),
+            rect: element.getBoundingClientRect()
+          }))
+          .filter((item) => visible(item.element) && closeWords.some((word) => item.text.includes(normalize(word))))
+          .sort((left, right) => right.rect.y - left.rect.y || right.rect.x - left.rect.x);
+        const hit = candidates[0];
+        if (hit) {
+          hit.element.click();
+          return true;
+        }
+        const overlays = [...document.querySelectorAll('[class*=popup], [id*=popup], [class*=layer], [id*=layer], .modal')]
+          .filter((element) => visible(element) && !hasLoginControl(element));
+        for (const overlay of overlays) {
+          overlay.style.display = 'none';
+          overlay.setAttribute('aria-hidden', 'true');
+        }
+        return overlays.length > 0;
+      })()
+    `, true).catch(() => null);
+    if (!result?.result?.result?.value) return;
+    await delay(400);
+  }
 }
 
 async function clickHipassUsageLookupFromMain(client) {
@@ -527,18 +716,24 @@ async function clickHipassUsageLookupFromMain(client) {
         return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
       };
       const labels = ['사용내역조회', '하이패스사용내역조회', '통행료사용내역조회'];
-      const candidates = [...document.querySelectorAll('a,button,input[type=button],input[type=submit],[role=button]')]
+      const candidates = [...document.querySelectorAll('a,button,input[type=button],input[type=submit],[role=button],[onclick]')]
         .map((element) => {
           const rect = element.getBoundingClientRect();
-          const text = (element.innerText || element.value || element.title || element.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ');
-          return { element, rect, text, compact: normalize(text), href: element.href || '' };
+          const text = (element.innerText || element.value || element.title || element.getAttribute('aria-label') || element.alt || '').trim().replace(/\\s+/g, ' ');
+          const href = element.href || element.getAttribute('href') || '';
+          const onclick = element.getAttribute('onclick') || '';
+          const parentText = (element.closest('a,button,li,div')?.innerText || '').trim().replace(/\\s+/g, ' ');
+          return { element, rect, text, compact: normalize(text + ' ' + parentText), href, onclick };
         })
         .filter((item) =>
           visible(item.element) &&
           (
             labels.some((label) => item.compact.includes(label)) ||
             item.href.includes('/usepculr/InitUsePculrTabSearch.do') ||
-            item.href.includes('/usepculr/InitUsePculrCalSearch.do')
+            item.href.includes('/usepculr/InitUsePculrCalSearch.do') ||
+            item.onclick.includes('InitUsePculrTabSearch') ||
+            item.onclick.includes('InitUsePculrCalSearch') ||
+            item.onclick.includes('usepculr')
           )
         )
         .sort((left, right) =>
@@ -557,6 +752,34 @@ async function clickHipassUsageLookupFromMain(client) {
   if (!hit) return false;
   await click(client, hit.x + hit.w / 2, hit.y + hit.h / 2);
   return true;
+}
+
+async function isHipassUsageSearchPage(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const visible = (element) => {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const hasKnownDateInput = ['sDate', 'eDate', 'sDate_view', 'eDate_view']
+        .some((id) => visible(document.getElementById(id)));
+      const hasLookupButton = visible(document.querySelector('#lookupBtn, #lookupBtn a'));
+      const hasSearchFunction = typeof window.fn_search_usepculr === 'function';
+      const hasVisibleDateInput = [...document.querySelectorAll('input')].some((input) => {
+        if (!visible(input)) return false;
+        const type = String(input.type || '').toLowerCase();
+        if (['hidden', 'button', 'submit', 'checkbox', 'radio'].includes(type)) return false;
+        const name = [input.name, input.id, input.title, input.placeholder, input.getAttribute('aria-label')]
+          .filter(Boolean)
+          .join(' ');
+        return /date|dt|일자|날짜|기간|시작|종료|from|to/i.test(name);
+      });
+      return Boolean(hasKnownDateInput || hasLookupButton || hasSearchFunction || hasVisibleDateInput);
+    })()
+  `, true).catch(() => null);
+  return Boolean(result?.result?.result?.value);
 }
 
 async function queryHipassUsageDate(client, dateKey) {
@@ -604,6 +827,189 @@ async function queryHipassUsageDate(client, dateKey) {
   return popupTarget;
 }
 
+async function queryHipassUsageRange(client, startDateKey, endDateKey, options = {}) {
+  await ensureHipassUsagePageReady(client);
+  if (await isHipassReceiptPrintPage(client)) {
+    return null;
+  }
+  const tableViewClicked = await clickHipassText(
+    client,
+    ["표로 보기", "표로보기", "탭 보기", "표보기"],
+    { minY: 450 }
+  ).catch(() => false);
+  if (tableViewClicked) {
+    await waitFor(
+      client,
+      "location.href.includes('/usepculr/InitUsePculrTabSearch.do') || document.querySelector('#sDate_view, #eDate_view')",
+      15000,
+      "하이패스 표로보기 화면"
+    );
+  }
+  await delay(500);
+  await setHipassDateRangeInputs(client, startDateKey, endDateKey);
+  const clicked = await submitHipassUsageSearch(client) ||
+    await clickHipassText(client, ["조회", "검색"], { minY: 450, preferBottom: true });
+  if (!clicked) {
+    throw new Error("하이패스 사용내역 조회 버튼을 찾지 못했습니다.");
+  }
+  await delay(1800);
+  if (options.openReceipt === false) {
+    return null;
+  }
+  const targetsBeforeReceipt = await listChromeTargets();
+  const targetIdsBeforeReceipt = new Set(targetsBeforeReceipt.map((target) => target.id));
+  const receiptClicked = await submitHipassReceiptPrint(client) || await clickHipassText(
+    client,
+    ["영수증 전체 출력", "영수증전체출력", "전체 출력", "전체출력", "영수증 출력", "영수증출력"],
+    { minY: 450, preferBottom: true }
+  );
+  if (!receiptClicked) {
+    if (await isHipassReceiptPrintPage(client)) return null;
+    const bodyText = await evaluate(client, "document.body.innerText", true).catch(() => null);
+    const text = String(bodyText?.result?.result?.value || "");
+    if (isHipassNoResultText(text)) return null;
+    throw new Error("하이패스 영수증 전체 출력 버튼을 찾지 못했습니다.");
+  }
+  const popupTarget = await waitForHipassReceiptPopupTarget(client.targetId, targetIdsBeforeReceipt);
+  await delay(1200);
+  return popupTarget;
+}
+
+async function readHipassUsageTargets(client, dateKeys = [], options = {}) {
+  const excludeFromHour = Number.isFinite(Number(options.excludeFromHour))
+    ? Number(options.excludeFromHour)
+    : 21;
+  const result = await evaluate(client, `
+    (() => {
+      const dateKeys = new Set(${JSON.stringify(dateKeys)});
+      const excludeFromHour = ${JSON.stringify(excludeFromHour)};
+      const normalizeDate = (year, month, day) =>
+        [String(year).padStart(4, '0'), String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+      const parseDate = (text) => {
+        const value = String(text || '');
+        const full = value.match(/(20\\d{2})\\D+(\\d{1,2})\\D+(\\d{1,2})/);
+        if (full) return normalizeDate(full[1], full[2], full[3]);
+        const short = value.match(/(?:^|\\D)(\\d{2})[.\\/-](\\d{1,2})[.\\/-](\\d{1,2})(?:\\D|$)/);
+        if (short) return normalizeDate('20' + short[1], short[2], short[3]);
+        return '';
+      };
+      const parseHour = (text) => {
+        const match = String(text || '').match(/(?:^|\\D)(\\d{1,2})\\s*[:시]\\s*(\\d{1,2})?/);
+        return match ? Number(match[1]) : -1;
+      };
+      const parseAmount = (text) => {
+        const amounts = [...String(text || '').matchAll(/(\\d{1,3}(?:,\\d{3})+|\\d{4,})\\s*원?/g)]
+          .map((match) => Number(String(match[1]).replace(/[^0-9]/g, '')))
+          .filter((value) => value > 0);
+        return amounts.length ? amounts[amounts.length - 1] : 0;
+      };
+      const visible = (element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const documents = [{ doc: document, frameIndex: 0 }];
+      [...document.querySelectorAll('iframe')].forEach((frame, index) => {
+        try {
+          if (frame.contentDocument) documents.push({ doc: frame.contentDocument, frameIndex: index + 1 });
+        } catch (_) {}
+      });
+      const rows = documents.flatMap(({ doc, frameIndex }) =>
+        [...doc.querySelectorAll('tr')]
+          .filter((row) => visible(row) && row.querySelector('input[type=checkbox], input[type=radio]'))
+          .map((row) => ({ row, frameIndex }))
+      );
+      const targets = [];
+      rows.forEach(({ row, frameIndex }, index) => {
+        const text = (row.innerText || row.textContent || '').replace(/\\s+/g, ' ').trim();
+        const dateKey = parseDate(text);
+        if (!dateKey || !dateKeys.has(dateKey)) return;
+        const hour = parseHour(text);
+        const amountWon = parseAmount(text);
+        const input = row.querySelector('input[type=checkbox], input[type=radio]');
+        const targetId = 'travel-proof-hipass-row-' + index;
+        row.dataset.travelProofHipassRow = targetId;
+        input.dataset.travelProofHipassRowInput = targetId;
+        targets.push({
+          id: targetId,
+          frameIndex,
+          dateKey,
+          hour,
+          amountWon,
+          excluded: hour >= excludeFromHour,
+          text
+        });
+      });
+      return targets;
+    })()
+  `, true);
+  return result.result.result.value || [];
+}
+
+async function printSelectedHipassUsageRows(client, targets = []) {
+  if (!targets.length) return null;
+  const targetsBeforeReceipt = await listChromeTargets();
+  const targetIdsBeforeReceipt = new Set(targetsBeforeReceipt.map((target) => target.id));
+  const selected = await evaluate(client, `
+    (() => {
+      const ids = new Set(${JSON.stringify(targets.map((target) => target.id))});
+      const documents = [{ doc: document }];
+      [...document.querySelectorAll('iframe')].forEach((frame) => {
+        try {
+          if (frame.contentDocument) documents.push({ doc: frame.contentDocument });
+        } catch (_) {}
+      });
+      const inputs = documents.flatMap(({ doc }) => [...doc.querySelectorAll('input[type=checkbox], input[type=radio]')]);
+      for (const input of inputs) {
+        if (input.checked) {
+          input.checked = false;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      let count = 0;
+      for (const input of inputs) {
+        const row = input.closest('tr');
+        const id = input.dataset.travelProofHipassRowInput || row?.dataset.travelProofHipassRow;
+        if (!ids.has(id)) continue;
+        input.scrollIntoView({ block: 'center', inline: 'center' });
+        input.checked = true;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        count += 1;
+      }
+      return count;
+    })()
+  `, true).catch(() => null);
+  if (!selected?.result?.result?.value) return null;
+  const receiptClicked = await submitHipassSelectedReceiptPrint(client) || await submitHipassReceiptPrint(client);
+  if (!receiptClicked) return null;
+  const popupTarget = await waitForHipassReceiptPopupTarget(client.targetId, targetIdsBeforeReceipt);
+  await delay(1200);
+  return popupTarget;
+}
+
+async function submitHipassSelectedReceiptPrint(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const callSelected = (win) => {
+        if (win && typeof win.fn_print_receipt_html === 'function') {
+          win.fn_print_receipt_html('0');
+          return true;
+        }
+        return false;
+      };
+      const frames = [...document.querySelectorAll('iframe')];
+      for (const frame of frames) {
+        try {
+          if (callSelected(frame.contentWindow)) return true;
+        } catch (_) {}
+      }
+      return callSelected(window);
+    })()
+  `, true).catch(() => null);
+  return Boolean(result?.result?.result?.value);
+}
+
 async function isHipassReceiptPrintPage(client) {
   const result = await evaluate(client, `
     (() => {
@@ -620,6 +1026,7 @@ async function readHipassLoginState(client) {
   const result = await evaluate(client, `
     (() => {
       const text = (document.body.innerText || '').replace(/\\s+/g, ' ');
+      const compactText = text.replace(/\\s+/g, '');
       const visible = (element) => {
         if (!element) return false;
         const rect = element.getBoundingClientRect();
@@ -635,17 +1042,32 @@ async function readHipassLoginState(client) {
         .filter(Boolean);
       const hasVisibleLogin = visibleButtons.some((label) => label === '로그인' || label.includes('개인 로그인') || label.includes('법인 로그인'));
       const hasVisibleLogout = visibleButtons.some((label) => label.includes('로그아웃'));
+      const hasUsagePage = location.href.includes('/usepculr/InitUsePculrTabSearch.do') ||
+        Boolean(document.querySelector('#sDate, #eDate, #sDate_view, #eDate_view, #lookupBtn')) ||
+        typeof window.fn_search_usepculr === 'function' ||
+        [...document.querySelectorAll('input')].some((input) => {
+          if (!visible(input)) return false;
+          const name = [input.name, input.id, input.title, input.placeholder, input.getAttribute('aria-label')]
+            .filter(Boolean)
+            .join(' ');
+          return /date|dt|일자|날짜|기간|시작|종료|from|to/i.test(name);
+        });
+      const hasLoginPage = location.href.toLowerCase().includes('login') ||
+        Boolean(userId || password) ||
+        (hasVisibleLogin && (compactText.includes('아이디') || compactText.includes('비밀번호') || compactText.includes('본인인증') || compactText.includes('개인회원')));
       return {
-        loggedIn: hasVisibleLogout && !password && !userId,
+        loggedIn: (hasVisibleLogout || hasUsagePage) && !password && !userId,
         hasLoginForm: Boolean(userId || password),
+        hasLoginPage,
         hasLoginButton: hasVisibleLogin
       };
     })()
   `, true).catch(() => null);
-  return result?.result?.result?.value || { loggedIn: false, hasLoginForm: false, hasLoginButton: false };
+  return result?.result?.result?.value || { loggedIn: false, hasLoginForm: false, hasLoginPage: false, hasLoginButton: false };
 }
 
 async function ensureHipassUsagePageReady(client) {
+  await closeHipassPagePopups(client);
   const state = await readHipassLoginState(client);
   if (!state.loggedIn && (state.hasLoginForm || state.hasLoginButton)) {
     await bringPageToFront(client);
@@ -653,20 +1075,7 @@ async function ensureHipassUsagePageReady(client) {
   }
 
   const ready = await waitUntil(async () => {
-    const result = await evaluate(client, `
-      (() => {
-        const text = (document.body.innerText || '').replace(/\\s+/g, ' ');
-        const hasDateInput = [...document.querySelectorAll('input')].some((input) => {
-          const rect = input.getBoundingClientRect();
-          const name = [input.name, input.id, input.title, input.placeholder, input.getAttribute('aria-label')]
-            .filter(Boolean)
-            .join(' ');
-          return rect.width > 0 && rect.height > 0 && /date|dt|일자|날짜|기간|시작|종료|from|to/i.test(name);
-        });
-        return hasDateInput || text.includes('사용내역') || text.includes('조회기간') || text.includes('영수증');
-      })()
-    `, true).catch(() => null);
-    return Boolean(result?.result?.result?.value);
+    return isHipassUsageSearchPage(client);
   }, 10000);
   if (!ready) {
     throw new Error("하이패스 사용내역 조회 화면을 찾지 못했습니다. 로그인 후 사용내역 조회 화면이 열렸는지 확인해 주세요.");
@@ -750,6 +1159,70 @@ async function setHipassDateInputs(client, dateKey) {
         }
       }
       return { count: targets.length + selects.length + (document.getElementById('sDate') ? 1 : 0) };
+    })()
+  `, true);
+  if (!result.result.result.value?.count) {
+    throw new Error("하이패스 조회 날짜 입력칸을 찾지 못했습니다.");
+  }
+}
+
+async function setHipassDateRangeInputs(client, startDateKey, endDateKey) {
+  const result = await evaluate(client, `
+    (() => {
+      const startDateKey = ${JSON.stringify(startDateKey)};
+      const endDateKey = ${JSON.stringify(endDateKey)};
+      const startCompact = startDateKey.replace(/-/g, '');
+      const endCompact = endDateKey.replace(/-/g, '');
+      const setValue = (input, value) => {
+        if (!input) return false;
+        input.focus();
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      };
+      let count = 0;
+      count += setValue(document.getElementById('sDate'), startCompact) ? 1 : 0;
+      count += setValue(document.getElementById('eDate'), endCompact) ? 1 : 0;
+      count += setValue(document.getElementById('sDate_view'), startDateKey) ? 1 : 0;
+      count += setValue(document.getElementById('eDate_view'), endDateKey) ? 1 : 0;
+      if (count < 2) {
+        const inputs = [...document.querySelectorAll('input')]
+          .filter((input) => {
+            const rect = input.getBoundingClientRect();
+            const type = String(input.type || '').toLowerCase();
+            return rect.width > 0 && rect.height > 0 && !['hidden', 'button', 'submit', 'checkbox', 'radio'].includes(type);
+          });
+        const dateInputs = inputs.filter((input) => {
+          const name = [input.name, input.id, input.title, input.placeholder, input.getAttribute('aria-label')]
+            .filter(Boolean)
+            .join(' ');
+          return /date|dt|일자|날짜|기간|시작|종료|from|to|month|조회년월|ym/i.test(name) ||
+            /\\d{4}[-.]?\\d{2}([-./]?\\d{2})?/.test(input.value || '');
+        });
+        const targets = dateInputs.length >= 2 ? dateInputs.slice(0, 2) : inputs.slice(0, 2);
+        const values = [startDateKey, endDateKey];
+        targets.forEach((input, index) => {
+          const value = input.maxLength === 8 || /^\\d{8}$/.test(input.value || '') ? values[index].replace(/-/g, '') : values[index];
+          if (setValue(input, value)) count += 1;
+        });
+      }
+      const usageDateRadio = document.getElementById('rdo_date_type1');
+      if (usageDateRadio) {
+        usageDateRadio.checked = true;
+        usageDateRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const receiptTimeRadio = document.getElementById('receipt_time_type1');
+      if (receiptTimeRadio) {
+        receiptTimeRadio.checked = true;
+        receiptTimeRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      const datepicker = document.getElementById('ui-datepicker-div');
+      if (datepicker) datepicker.style.display = 'none';
+      return { count };
     })()
   `, true);
   if (!result.result.result.value?.count) {
@@ -895,10 +1368,18 @@ async function filterHipassReceiptPage(client, dateKey, options = {}) {
   const excludeFromHour = Number.isFinite(Number(options.excludeFromHour))
     ? Number(options.excludeFromHour)
     : 21;
-  const result = await evaluate(client, `
+      const result = await evaluate(client, `
     (() => {
+      document.documentElement.style.background = '#ffffff';
+      document.body.style.background = '#ffffff';
+      document.getElementById('travel-proof-hipass-capture-root')?.remove();
       const targetDate = ${JSON.stringify(dateKey)};
       const excludeFromHour = ${JSON.stringify(excludeFromHour)};
+      [...document.querySelectorAll('[data-travel-proof-hipass-keep]')].forEach((element) => {
+        element.style.display = '';
+        element.style.visibility = 'visible';
+        delete element.dataset.travelProofHipassKeep;
+      });
       const normalizeDate = (year, month, day) =>
         [String(year).padStart(4, '0'), String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
       const receiptTime = (text) => {
@@ -919,25 +1400,36 @@ async function filterHipassReceiptPage(client, dateKey, options = {}) {
         const style = getComputedStyle(element);
         return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
       };
-      const tables = [...document.querySelectorAll('table')]
-        .filter((table) => visible(table) && isReceiptText(table.innerText));
-      const containers = tables.filter((table) =>
-        !tables.some((other) => other !== table && other.contains(table) && isReceiptText(other.innerText))
-      );
+      const receiptElements = [...document.querySelectorAll('td, table')]
+        .filter((element) => visible(element) && isReceiptText(element.innerText));
+      const matchingTables = receiptElements
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { table: element, rect, issuedAt: receiptTime(element.innerText || '') };
+        })
+        .filter((item) => item.issuedAt)
+        .sort((left, right) =>
+          (left.rect.width * left.rect.height) - (right.rect.width * right.rect.height)
+        );
+      const containers = [];
+      for (const item of matchingTables) {
+        if (!containers.some((table) => item.table.contains(table) || table.contains(item.table))) {
+          containers.push(item.table);
+        }
+      }
       let kept = 0;
       let hidden = 0;
+      const keptTables = [];
       for (const table of containers) {
         const text = table.innerText || '';
         const issuedAt = receiptTime(text);
         const keep = issuedAt && issuedAt.dateKey === targetDate && issuedAt.hour < excludeFromHour;
         if (keep) {
           kept += 1;
+          keptTables.push(table);
           table.dataset.travelProofHipassKeep = '1';
           table.style.display = '';
           table.style.visibility = 'visible';
-          table.style.outline = '4px solid #ff0000';
-          table.style.outlineOffset = '-4px';
-          table.scrollIntoView({ block: 'start', inline: 'nearest' });
         } else {
           hidden += 1;
           table.dataset.travelProofHipassKeep = '0';
@@ -959,6 +1451,7 @@ async function filterHipassReceiptPage(client, dateKey, options = {}) {
 async function getHipassReceiptClip(client) {
   const result = await evaluate(client, `
     (() => {
+      const keptElements = [...document.querySelectorAll('[data-travel-proof-hipass-keep="1"]')];
       const bodyRect = document.body.getBoundingClientRect();
       const candidates = [...document.querySelectorAll('body *')]
         .map((element) => {
@@ -967,19 +1460,33 @@ async function getHipassReceiptClip(client) {
           return { element, rect, text };
         })
         .filter((item) =>
-          item.rect.width > 180 &&
+          item.rect.width > 80 &&
           item.rect.height > 80 &&
           getComputedStyle(item.element).display !== 'none' &&
           getComputedStyle(item.element).visibility !== 'hidden' &&
           item.element.dataset.travelProofHipassKeep === '1'
         )
         .sort((left, right) => (left.rect.top - right.rect.top) || (left.rect.left - right.rect.left));
-      const rect = candidates[0]?.rect || bodyRect;
-      const padding = 8;
-      const x = Math.max(0, Math.floor(rect.left - padding));
-      const y = Math.max(0, Math.floor(rect.top - padding));
-      const right = Math.min(document.documentElement.scrollWidth, Math.ceil(rect.right + padding));
-      const bottom = Math.min(document.documentElement.scrollHeight, Math.ceil(rect.bottom + padding));
+      const rect = candidates.length
+        ? candidates.reduce((merged, item) => ({
+            left: Math.min(merged.left, item.rect.left),
+            top: Math.min(merged.top, item.rect.top),
+            right: Math.max(merged.right, item.rect.right),
+            bottom: Math.max(merged.bottom, item.rect.bottom)
+          }), {
+            left: candidates[0].rect.left,
+            top: candidates[0].rect.top,
+            right: candidates[0].rect.right,
+            bottom: candidates[0].rect.bottom
+          })
+        : bodyRect;
+      const paddingX = 12;
+      const paddingTop = 56;
+      const paddingBottom = 20;
+      const x = Math.max(0, Math.floor(rect.left - paddingX));
+      const y = Math.max(0, Math.floor(rect.top - paddingTop));
+      const right = Math.min(document.documentElement.scrollWidth, Math.ceil(rect.right + paddingX));
+      const bottom = Math.min(document.documentElement.scrollHeight, Math.ceil(rect.bottom + paddingBottom));
       return {
         x,
         y,
@@ -1036,7 +1543,7 @@ async function ensureChrome(options) {
   ], {
     detached: true,
     stdio: "ignore",
-    windowsHide: true
+    windowsHide: false
   }).unref();
 
   const started = await waitUntil(async () => canReachChrome(endpoint), 15000);

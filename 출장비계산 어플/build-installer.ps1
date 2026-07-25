@@ -17,21 +17,33 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"   # 코드서명 없이 빌드
 
 # 양식 원본 위치 (필요시 이 경로만 바꾸면 됩니다)
 $templateSource = "G:\내 드라이브\출장비증빙\출장비 양식.xlsx"
+$templateB64 = "build/expense-template.b64"
 
 Write-Host "[1/4] 양식을 base64로 변환합니다..." -ForegroundColor Cyan
 $genScript = @"
 const fs = require('fs');
 const src = process.argv[1];
-if (!fs.existsSync(src)) { console.error('양식 원본을 찾을 수 없습니다: ' + src); process.exit(1); }
+const out = process.argv[2];
+if (!fs.existsSync(src)) {
+  if (fs.existsSync(out)) {
+    const restored = Buffer.from(fs.readFileSync(out, 'utf8').replace(/\s+/g,''), 'base64');
+    if (restored.slice(0,4).toString('hex') === '504b0304') {
+      console.log('  양식 원본을 찾지 못해 기존 내장 양식을 재사용합니다: ' + out);
+      process.exit(0);
+    }
+  }
+  console.error('양식 원본을 찾을 수 없습니다: ' + src);
+  process.exit(1);
+}
 const buf = fs.readFileSync(src);
 if (buf.slice(0,4).toString('hex') !== '504b0304') {
   console.error('원본이 정상 xlsx가 아닙니다(프라이버시i 잠금 의심). header=' + buf.slice(0,8).toString('hex'));
   process.exit(1);
 }
-fs.writeFileSync('build/expense-template.b64', buf.toString('base64'));
-console.log('  변환 완료: build/expense-template.b64');
+fs.writeFileSync(out, buf.toString('base64'));
+console.log('  변환 완료: ' + out);
 "@
-& $node -e $genScript $templateSource
+& $node -e $genScript $templateSource $templateB64
 if ($LASTEXITCODE -ne 0) { Write-Host "[중단] 양식 변환 실패." -ForegroundColor Red; exit 1 }
 
 Write-Host "[2/4] 빌드 설정을 준비합니다..." -ForegroundColor Cyan

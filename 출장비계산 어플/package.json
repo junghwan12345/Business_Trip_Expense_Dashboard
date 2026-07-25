@@ -1,7 +1,7 @@
 {
   "name": "business-trip-proof",
   "productName": "출장비 증빙 정리",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "main": "desktop/main.mjs",
@@ -28,6 +28,7 @@
     "files": [
       "desktop/**/*",
       "src/**/*",
+      "assets/**/*",
       "server.mjs",
       "travel-proof.html",
       "package.json"

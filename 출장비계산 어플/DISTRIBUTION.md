@@ -13,8 +13,7 @@
 1. Google Drive 데스크톱에서 직원 본인 계정으로 로그인한다.
 2. 설치파일을 실행하고 바탕화면의 `출장비 증빙 정리`를 연다.
 3. 첫 화면에서 본인 Drive의 `내 드라이브` 폴더를 선택한다.
-4. 필요하면 관리자가 읽기 공유한 업데이트 폴더도 선택한다.
-5. 쿠팡 캡처를 처음 사용할 때 전용 Chrome 창에서 본인 계정으로 로그인한다.
+4. 쿠팡 캡처를 처음 사용할 때 전용 Chrome 창에서 본인 계정으로 로그인한다.
 
 직원 증빙과 쿠팡 세션은 다른 직원이나 관리자에게 전송되지 않습니다.
 
@@ -23,10 +22,17 @@
 1. `package.json` 버전을 올린다.
 2. `npm test`와 실제 캡처 점검을 마친다.
 3. `npm run build:win`으로 설치파일을 만든다.
-4. `npm run update:publish -- --version x.y.z --update-root "공유폴더"`를 실행한다.
-5. 게시 스크립트는 설치파일을 먼저 복사하고 서명된 `release-manifest.json`을 마지막에 게시한다.
+4. `npm run update:publish -- --version x.y.z`를 실행해 `dist\release-manifest.json`을 만든다.
+5. GitHub 저장소의 Releases에서 `vX.Y.Z` 태그로 새 Release를 만든다.
+6. Release 파일에 `dist\BusinessTripProof-X.Y.Z-Setup.exe`와 `dist\release-manifest.json`을 함께 업로드한다.
 
-직원 앱은 6시간마다 확인하고 종료 시 업데이트합니다. Drive 동기화가 덜 되었거나 서명이 다르면 설치하지 않습니다.
+직원 앱은 GitHub Releases의 최신 `release-manifest.json`을 6시간마다 확인하고 종료 시 업데이트합니다. 서명이나 해시가 다르면 설치하지 않습니다.
+
+내부망 등으로 GitHub 접근이 어려운 경우에는 기존 공유 폴더 방식도 사용할 수 있습니다.
+
+```powershell
+npm run update:publish -- --version x.y.z --update-root "공유폴더"
+```
 
 ## 파일럿 확인표
 

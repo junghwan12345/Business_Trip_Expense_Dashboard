@@ -27,6 +27,10 @@ test("distance page uses the compact renewal structure without a visible fuel ou
   assert.match(html, /일반 출장 수동입력/);
   assert.match(html, /<h2><i[^>]+><\/i>출장 데이터 입력<\/h2>/);
   assert.match(html, /id="captureResultPanel"/);
+  assert.match(html, /capture-target-card/);
+  assert.match(html, /id="captureTargetToll"/);
+  assert.match(html, /id="captureTargetRoute"/);
+  assert.match(html, /id="captureTargetOil"/);
   assert.doesNotMatch(html, /id="copyFuelOutputButton"/);
   assert.doesNotMatch(html, /id="fuelOutput"/);
   assert.doesNotMatch(html, /현장매장방문출장 엑셀 붙여넣기 결과/);
@@ -49,8 +53,11 @@ test("remaining workspaces use the shared card design without removing the sideb
   for (const workspace of ["coupang-workspace", "excel-workspace", "ppt-workspace", "storage-workspace"]) {
     assert.match(html, new RegExp(workspace));
   }
-  assert.match(html, /id="excelReviewCount"/);
-  assert.match(html, /id="pptMissingCount"/);
+  assert.match(html, /excel-workflow-guide/);
+  assert.match(html, /data-excel-workflow-target="classify"/);
+  assert.match(html, /data-excel-step-panel="result"/);
+  assert.doesNotMatch(html, /ppt-summary-grid/);
+  assert.doesNotMatch(html, /id="pptMissingCount"/);
   assert.match(html, /id="storageCleanupState"/);
   assert.match(css, /body:not\(\[data-active-page="distance"\]\) \.sidebar \{\s*display: flex;/);
   assert.match(css, /corporate-card-table thead \{[\s\S]*position: sticky;/);
@@ -70,7 +77,6 @@ test("coupang workspace keeps compact allowance settings and manual entry contro
   assert.match(html, /id="supplyRemainingCard"/);
   assert.match(html, /id="welfareProgressBar"/);
   assert.match(html, /id="supplyProgressBar"/);
-  assert.match(html, /조활비 인원 수 셋팅/);
   assert.match(html, /id="coupangPeopleInput"/);
   assert.match(html, /manual-expense-card/);
   assert.match(html, /id="toggleManualExpenseButton"/);

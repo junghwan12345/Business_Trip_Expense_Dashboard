@@ -28,7 +28,7 @@
             <button class="secondary-button" id="browsePersonalDriveButton" type="button">폴더 찾기</button>
           </div>
         </label>
-        <label class="onboarding-field" id="updateRootField">
+        <label class="onboarding-field" id="updateRootField" hidden>
           업데이트 공유 폴더 (선택)
           <div class="path-picker-row">
             <input id="updateRootInput" type="text" placeholder="관리자가 공유한 앱 업데이트 폴더" />
@@ -53,8 +53,8 @@
         </div>
 
         <nav class="side-nav" aria-label="기능 메뉴">
-          <button class="nav-item active" type="button" data-page-target="distance"><i class="ph ph-gas-pump"></i>거리·유류대·통행료</button>
-          <button class="nav-item" type="button" data-page-target="coupang"><i class="ph ph-receipt"></i>조활비·소모품비</button>
+          <button class="nav-item active" type="button" data-page-target="distance"><i class="ph ph-gas-pump"></i><span class="nav-label">자동캡처 <small>(거리/유류대/통행료)</small></span></button>
+          <button class="nav-item" type="button" data-page-target="coupang"><i class="ph ph-receipt"></i><span class="nav-label">자동캡처 <small>(조활비/소모품비)</small></span></button>
           <button class="nav-item" type="button" data-page-target="excel-export"><i class="ph ph-file-xls"></i>지출결의서 Excel 제작</button>
           <button class="nav-item" type="button" data-page-target="ppt"><i class="ph ph-presentation-chart"></i>증빙자료 PPT 제작</button>
           <button class="nav-item" type="button" data-page-target="storage"><i class="ph ph-gear-six"></i>설정</button>
@@ -65,6 +65,10 @@
           <strong id="browserStatus">준비됨</strong>
           <small id="appVersionLabel">개인 저장 모드</small>
           <small id="updateStatusLabel">업데이트 확인 전</small>
+          <button class="update-refresh-button" id="updateRefreshButton" type="button">
+            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+            업데이트 갱신
+          </button>
         </div>
       </aside>
 
@@ -116,6 +120,40 @@
         </header>
 
         <section class="page active" data-page-panel="distance">
+          <section class="distance-guide" aria-label="거리 유류대 통행료 사용 방법">
+            <article class="distance-guide-card">
+              <div class="distance-guide-number">1.</div>
+              <div class="distance-guide-copy">
+                <h2>현장지원 일정 붙여넣기</h2>
+                <p>현장지원 방문의 내 일정 전체를 복사하여 붙여 넣으면 자동 계산 됩니다.</p>
+                <span>아래 입력칸에 붙여넣기</span>
+              </div>
+              <span class="distance-guide-icon is-excel" aria-hidden="true"><i class="ph ph-file-xls"></i></span>
+            </article>
+            <i class="ph ph-caret-right distance-guide-arrow" aria-hidden="true"></i>
+            <article class="distance-guide-card">
+              <div class="distance-guide-number">2.</div>
+              <div class="distance-guide-copy">
+                <h2>캡처 시작</h2>
+                <p>거리·유가·통행료 중 필요한 항목을 선택한 뒤 캡처 시작을 누르면 자동으로 증빙을 캡처합니다.</p>
+                <span>항목 선택 후 캡처 시작</span>
+              </div>
+              <span class="distance-guide-icon is-play" aria-hidden="true"><i class="ph-fill ph-play"></i></span>
+            </article>
+            <i class="ph ph-caret-right distance-guide-arrow" aria-hidden="true"></i>
+            <article class="distance-guide-card">
+              <div class="distance-guide-number">3.</div>
+              <div class="distance-guide-copy">
+                <h2>실패건 재실행</h2>
+                <p>실패한 건만 골라서 다시 검색하고 캡처할 수 있습니다.</p>
+                <span>실패 발생 시 버튼 활성화</span>
+              </div>
+              <button class="distance-guide-retry-button" id="retryFailedButton" type="button" disabled title="실패 건 재실행 버튼" aria-label="실패 건 재실행 버튼">
+                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                <span>실패 건<br />재실행 버튼</span>
+              </button>
+            </article>
+          </section>
           <div class="summary-grid distance-summary-grid">
             <article class="stat-card">
               <span class="stat-icon" aria-hidden="true"><i class="ph ph-clipboard-text"></i></span>
@@ -140,16 +178,19 @@
               <span class="stat-icon" aria-hidden="true"><i class="ph ph-arrows-clockwise"></i></span>
               <div class="stat-copy retry-copy">
                 <span>실패 재처리</span>
-                <button class="secondary-button compact" id="retryFailedButton" type="button" disabled>실패건만 재실행</button>
+                <span class="folder-label">상단 안내 카드에서 실행합니다.</span>
               </div>
             </article>
           </div>
 
           <div class="content-grid distance-content-grid">
-            <section class="panel" id="tripInputPanel">
-              <div class="panel-heading">
+            <section class="panel collapsible-panel is-collapsed" id="tripInputPanel" data-collapsible-panel data-collapse-group="distance-overview">
+              <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
                 <h2><i class="ph ph-clipboard-text" aria-hidden="true"></i>출장 데이터 입력</h2>
-                <button class="primary-button" id="runButton" type="button" disabled><i class="ph-fill ph-play" aria-hidden="true"></i>캡처 시작</button>
+                <div class="distance-heading-actions">
+                  <button class="primary-button" id="runButton" type="button" disabled><i class="ph-fill ph-play" aria-hidden="true"></i>캡처 시작</button>
+                  <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+                </div>
               </div>
 
               <div class="form-grid">
@@ -168,8 +209,20 @@
                   현장지원 엑셀표 붙여넣기
                   <button class="ghost-button compact" id="loadSampleButton" type="button">샘플 보기 <i class="ph ph-clipboard-text"></i></button>
                 </span>
-                <textarea id="tableInput" spellcheck="false" placeholder="대리점명	POS코드	POS명	유형요약	POS주소	날짜	시간"></textarea>
+                <textarea id="tableInput" spellcheck="false" placeholder="엑셀 전체를 복사하여 붙여 넣으면 자동 추출하여 계산합니다"></textarea>
               </label>
+
+              <div class="capture-target-card" aria-label="캡처 항목 선택">
+                <div class="capture-target-copy">
+                  <strong>캡처 항목 선택</strong>
+                  <small>필요한 증빙만 선택해서 캡처할 수 있습니다.</small>
+                </div>
+                <div class="capture-target-options">
+                  <label><input id="captureTargetToll" type="checkbox" value="toll" checked /> <span>통행료</span></label>
+                  <label><input id="captureTargetRoute" type="checkbox" value="route" checked /> <span>거리</span></label>
+                  <label><input id="captureTargetOil" type="checkbox" value="oil" checked /> <span>유가</span></label>
+                </div>
+              </div>
 
               <details class="manual-box manual-waypoint-box">
                 <summary>
@@ -202,14 +255,15 @@
               <button class="secondary-button" id="previewButton" type="button" hidden>미리보기</button>
             </section>
 
-            <section class="panel">
-              <div class="panel-heading">
+            <section class="panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="distance-overview">
+              <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
                 <h2><i class="ph ph-calendar-blank" aria-hidden="true"></i>출장 일정</h2>
                 <div class="calendar-controls">
                   <button class="secondary-button compact" id="prevMonthButton" type="button">‹</button>
                   <strong id="calendarMonthLabel">-</strong>
                   <button class="secondary-button compact" id="nextMonthButton" type="button">›</button>
                   <button class="ghost-button compact" id="todayMonthButton" type="button">이번 달</button>
+                  <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
                 </div>
               </div>
               <div class="month-notice" id="crossMonthNotice"></div>
@@ -217,22 +271,23 @@
             </section>
           </div>
 
-          <details class="panel result-panel" id="captureResultPanel">
-            <summary class="result-panel-summary">
-              <span><i class="ph-fill ph-check-circle" aria-hidden="true"></i>캡처 실행 결과</span>
-              <small id="captureResultFoldSummary">성공 0건 · 실패 0건</small>
-            </summary>
-            <div class="result-grid result-panel-content">
-              <div>
-                <h3>성공</h3>
-                <ul id="successList"></ul>
-              </div>
-              <div>
-                <h3>오류</h3>
-                <ul id="errorList"></ul>
+          <div class="panel result-panel" id="captureResultPanel">
+            <div class="capture-result-layout result-panel-content">
+              <div class="capture-proof-card">
+                <div class="capture-proof-heading">
+                  <div>
+                    <h3>캡처 이미지</h3>
+                    <span id="captureProofPreviewSummary">저장된 이미지 0개</span>
+                  </div>
+                  <div class="capture-proof-heading-actions">
+                    <button class="ghost-button compact" id="refreshCaptureProofPreviewButton" type="button">새로고침</button>
+                    <button class="ghost-button compact capture-proof-toggle-button" id="toggleCaptureProofCardButton" type="button" aria-expanded="true">접기</button>
+                  </div>
+                </div>
+                <div class="capture-proof-preview-grid" id="captureProofPreviewList"></div>
               </div>
             </div>
-          </details>
+          </div>
         </section>
 
         <section class="page workspace-page coupang-workspace" data-page-panel="coupang">
@@ -252,7 +307,7 @@
                 <div class="allowance-progress-track">
                   <span id="welfareProgressBar"></span>
                 </div>
-                <small>한도 <b id="welfareLimitCard">150,000원</b></small>
+                <span id="welfareLimitCard" hidden>150,000원</span>
               </div>
               <div class="allowance-period" aria-label="조활비 조회 기간">
                 <select id="welfareYearInput" aria-label="조활비 조회 연도">
@@ -289,7 +344,7 @@
                 <div class="allowance-progress-track">
                   <span id="supplyProgressBar"></span>
                 </div>
-                <small>한도 <b id="supplyLimitCard">50,000원</b></small>
+                <span id="supplyLimitCard" hidden>50,000원</span>
               </div>
               <div class="allowance-period" aria-label="소모품비 조회 기간">
                 <select id="supplyYearInput" aria-label="소모품비 조회 연도">
@@ -322,10 +377,13 @@
           </div>
 
           <div class="coupang-work-grid">
-          <section class="panel coupang-panel">
-            <div class="panel-heading">
+          <section class="panel coupang-panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="coupang-capture">
+            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
               <h2><i class="ph ph-camera"></i>쿠팡 거래명세서 캡처</h2>
-              <button class="primary-button" id="runCoupangButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
+              <div class="coupang-heading-actions">
+                <button class="primary-button" id="runCoupangButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
+                <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+              </div>
             </div>
             <p class="folder-label">쿠팡에 로그인된 자동화 Chrome에서 마이쿠팡 주문목록 기준으로 날짜별 거래명세서를 캡처합니다.</p>
             <div class="coupang-capture-row">
@@ -337,9 +395,10 @@
             <input id="settingsSupplyLimitInput" type="hidden" value="50000" />
           </section>
 
-          <section class="panel">
-            <div class="panel-heading">
+          <section class="panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="coupang-capture">
+            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
               <h2><i class="ph ph-check-square-offset"></i>쿠팡 처리 결과</h2>
+              <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
             </div>
             <div class="result-grid">
               <div>
@@ -354,12 +413,13 @@
             </section>
           </div>
 
-          <section class="panel ledger-panel ledger-history-panel">
-            <div class="panel-heading">
+          <section class="panel ledger-panel ledger-history-panel collapsible-panel is-collapsed" data-collapsible-panel>
+            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
               <h2><i class="ph ph-clock-counter-clockwise"></i>사용 이력</h2>
               <div class="ledger-heading-actions">
                 <div class="ledger-filter-chips" id="ledgerFilterChips" role="tablist" aria-label="사용 이력 구분 필터"></div>
                 <button class="primary-button compact" id="toggleManualExpenseButton" type="button" aria-expanded="false" aria-controls="manualExpenseCard"><i class="ph ph-plus"></i>수기 내역 추가</button>
+                <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
               </div>
             </div>
             <details class="manual-expense-card" id="manualExpenseCard">
@@ -414,30 +474,41 @@
         </section>
 
         <section class="page workspace-page excel-workspace" data-page-panel="excel-export">
-          <div class="summary-grid workspace-summary-grid excel-summary-grid">
-            <article class="stat-card"><span class="stat-icon"><i class="ph ph-credit-card"></i></span><div class="stat-copy"><span>저장된 카드 내역</span><strong id="excelCardCount">0건</strong><small>현재 분류 대상</small></div></article>
-            <article class="stat-card"><span class="stat-icon review"><i class="ph ph-warning-circle"></i></span><div class="stat-copy"><span>확인 필요</span><strong id="excelReviewCount">0건</strong><small>항목 선택 필요</small></div></article>
-            <article class="stat-card"><span class="stat-icon"><i class="ph ph-rows"></i></span><div class="stat-copy"><span>생성 결과</span><strong id="excelOutputCount">0행</strong><small>3개 엑셀 시트 합계</small></div></article>
+          <div class="summary-grid workspace-summary-grid excel-summary-grid excel-workflow-guide" aria-label="지출결의서 작성 순서">
+            <button class="excel-workflow-card is-paste" type="button" data-excel-workflow-target="paste">
+              <span class="excel-workflow-number">1.</span>
+              <span class="excel-workflow-copy"><strong>카드내역 붙여넣기</strong><span>법인카드 사용내역 전체를 붙여넣어 주세요</span></span>
+              <img src="assets/workflow/corporate-card-paste.png" alt="Excel 내역 붙여넣기 안내" />
+            </button>
+            <button class="excel-workflow-card is-classify" type="button" data-excel-workflow-target="classify">
+              <span class="excel-workflow-number">2.</span>
+              <span class="excel-workflow-copy"><strong>사용 항목 분류하기</strong><span>각 카드 내역의 지출 항목을 선택하세요.</span><small>현장지원 · 조활비 · 소모품비 · 기타</small></span>
+              <img src="assets/workflow/corporate-card-classify.png" alt="사용 항목 분류 안내" />
+            </button>
+            <button class="excel-workflow-card is-create" type="button" data-excel-workflow-target="result">
+              <span class="excel-workflow-number">3.</span>
+              <span class="excel-workflow-copy"><strong>지출결의서 만들기</strong><span>분류 결과를 확인한 후 Excel을 생성하세요.</span><small>회사 지출결의서 양식에 자동 작성됩니다.</small></span>
+              <img src="assets/workflow/corporate-card-create.png" alt="지출결의서 만들기 안내" />
+            </button>
           </div>
-          <section class="panel corporate-card-panel collapsible-panel is-collapsed" data-collapsible-panel>
+          <section class="panel corporate-card-panel collapsible-panel is-collapsed" data-collapsible-panel data-excel-step-panel="paste">
             <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
-              <h2><span class="step-icon">①</span>법인카드 내역 붙여넣기</h2>
+              <h2><span class="step-icon">①</span>카드내역 붙여넣기</h2>
               <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
             </div>
-            <p class="folder-label">카드사 엑셀 표를 복사해 붙여넣으면 일자, 가맹점, 업종, 최종금액을 추출합니다. 각 내역의 입력 시트를 선택하면 아래 엑셀 붙여넣기 결과에 자동 반영됩니다.</p>
             <label class="table-paste-label">
               <span class="label-row corporate-paste-row">
                 법인카드 엑셀표 붙여넣기
                 <button class="primary-button compact" id="parseCorporateCardButton" type="button"><i class="ph ph-magnifying-glass"></i>내역분석</button>
               </span>
-              <textarea id="corporateCardInput" spellcheck="false" placeholder="일자	가맹점	업종	최종금액"></textarea>
+              <textarea id="corporateCardInput" spellcheck="false" placeholder="카드사 엑셀 표를 복사해 붙여넣으면 일자, 가맹점, 업종, 최종금액을 추출합니다."></textarea>
             </label>
             <ul class="cleanup-list" id="corporateCardErrorList" hidden></ul>
           </section>
 
-          <section class="panel corporate-card-list-panel collapsible-panel is-collapsed" data-collapsible-panel>
+          <section class="panel corporate-card-list-panel collapsible-panel is-collapsed" data-collapsible-panel data-excel-step-panel="classify">
             <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
-              <h2><span class="step-icon">②</span>법인카드 내역 분류</h2>
+              <h2><span class="step-icon">②</span>사용 항목 분류하기</h2>
               <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
             </div>
             <div class="corporate-card-summary-row">
@@ -494,9 +565,9 @@
             <div class="corporate-card-more" id="corporateCardEntryMore"></div>
           </section>
 
-          <section class="panel excel-output-panel collapsible-panel is-collapsed" data-collapsible-panel>
+          <section class="panel excel-output-panel collapsible-panel is-collapsed" data-collapsible-panel data-excel-step-panel="result">
             <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
-              <h2><span class="step-icon">③</span>법인카드 분류 결과</h2>
+              <h2><span class="step-icon">③</span>분류 결과 확인 및 생성</h2>
               <button class="primary-button compact" id="writeDirectExcelButton" type="button"><i class="ph ph-file-arrow-down"></i>지출결의서 만들기</button>
               <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
             </div>
@@ -546,11 +617,6 @@
         </section>
 
         <section class="page workspace-page ppt-workspace" data-page-panel="ppt">
-          <div class="summary-grid workspace-summary-grid ppt-summary-grid">
-            <article class="stat-card"><span class="stat-icon"><i class="ph ph-calendar-check"></i></span><div class="stat-copy"><span>증빙 날짜</span><strong id="pptProofDateCount">0일</strong><small>미리보기 기준</small></div></article>
-            <article class="stat-card"><span class="stat-icon review"><i class="ph ph-warning-circle"></i></span><div class="stat-copy"><span>필수 증빙 누락</span><strong id="pptMissingCount">0건</strong><small>거리·유가 확인</small></div></article>
-            <article class="stat-card"><span class="stat-icon"><i class="ph ph-presentation-chart"></i></span><div class="stat-copy"><span>생성 준비</span><strong id="pptReadyState">확인 전</strong><small>미리보기 후 생성</small></div></article>
-          </div>
           <section class="panel ppt-create-panel">
             <div class="panel-heading">
               <h2><i class="ph ph-presentation-chart"></i>증빙자료 PPT 제작</h2>
@@ -574,51 +640,50 @@
         </section>
 
         <section class="page workspace-page storage-workspace" data-page-panel="storage">
-          <div class="summary-grid workspace-summary-grid storage-summary-grid">
+          <div class="summary-grid workspace-summary-grid storage-summary-grid" hidden>
             <article class="stat-card"><span class="stat-icon"><i class="ph ph-images"></i></span><div class="stat-copy"><span>저장 이미지</span><strong id="storageFileCount">0개</strong><small>선택 월 기준</small></div></article>
             <article class="stat-card"><span class="stat-icon"><i class="ph ph-calendar-dots"></i></span><div class="stat-copy"><span>자료 날짜</span><strong id="storageDateCount">0일</strong><small>날짜별 묶음</small></div></article>
             <article class="stat-card"><span class="stat-icon"><i class="ph ph-broom"></i></span><div class="stat-copy"><span>정리 상태</span><strong id="storageCleanupState">확인 전</strong><small>중복·폴더 관리</small></div></article>
           </div>
           <section class="panel app-settings-panel">
             <div class="panel-heading">
-              <h2><i class="ph ph-gear-six"></i>기본 설정</h2>
-              <button class="primary-button" id="saveSettingsButton" type="button"><i class="ph ph-floppy-disk"></i>설정 반영</button>
+              <div>
+                <h2><i class="ph ph-gear-six"></i>설정</h2>
+                <p class="folder-label">초기 설정을 다시 열거나 저장된 증빙자료를 확인합니다.</p>
+              </div>
             </div>
-            <div class="settings-grid">
-              <label>
-                유류대거리 기본 출발점
-                <input id="settingsStartInput" type="text" placeholder="예: 태왕디아너스오페라" />
-              </label>
-              <label>
-                유류대거리 기본 도착지
-                <input id="settingsDestinationInput" type="text" placeholder="예: 태왕디아너스오페라" />
-              </label>
-              <label>
-                작성자 이름
-                <input id="settingsAuthorNameInput" type="text" placeholder="예: 배정환" />
-              </label>
-              <label>
-                조활비 인원 수 셋팅
-                <input id="coupangPeopleInput" type="number" min="1" value="3" />
-              </label>
-              <label>
-                기본 저장 폴더
-                <button class="secondary-button" id="settingChooseFolderButton" type="button"><i class="ph ph-folder-open"></i>저장 폴더 선택</button>
-              </label>
-              <label>
-                초기 설정
-                <button class="secondary-button" id="reopenInitialSetupButton" type="button"><i class="ph ph-sparkle"></i>초기 설정 다시 열기</button>
-              </label>
+            <div class="settings-simple-grid">
+              <button class="settings-simple-card" id="reopenInitialSetupButton" type="button">
+                <span class="settings-simple-icon"><i class="ph ph-sparkle"></i></span>
+                <strong>초기 설정 다시 열기</strong>
+                <small>작성자, 출발지/도착지, 조활비 인원 수, 저장 위치를 다시 설정합니다.</small>
+                <i class="ph ph-caret-right"></i>
+              </button>
+              <button class="settings-simple-card" id="refreshStorageButton" type="button">
+                <span class="settings-simple-icon"><i class="ph ph-folder-open"></i></span>
+                <strong>저장자료 확인</strong>
+                <small>선택한 저장 폴더의 기준 월 자료를 이미지 기준으로 확인합니다.</small>
+                <i class="ph ph-caret-right"></i>
+              </button>
             </div>
-            <p class="folder-label" id="settingsStatus">설정을 바꾸면 관련 금액과 캡처 기준에 바로 반영됩니다.</p>
+            <div class="settings-hidden-fields" hidden>
+              <input id="settingsStartInput" type="text" />
+              <input id="settingsDestinationInput" type="text" />
+              <input id="settingsAuthorNameInput" type="text" />
+              <input id="coupangPeopleInput" type="number" min="1" value="3" />
+              <input id="settingsStoragePathPreview" type="text" readonly />
+              <span id="settingsStoragePreviewText"></span>
+              <span id="settingsWelfarePreview"></span>
+            </div>
+            <p class="folder-label" id="settingsStatus">초기 설정을 다시 열어 기본값을 변경할 수 있습니다.</p>
           </section>
-          <details class="panel storage-preview-panel">
+          <details class="panel storage-preview-panel" id="storagePreviewPanel">
             <summary class="panel-heading">
               <h2><i class="ph ph-folder-open"></i>저장자료 확인</h2>
               <i class="ph ph-caret-down storage-preview-caret"></i>
             </summary>
             <div class="storage-preview-body">
-              <button class="secondary-button" id="refreshStorageButton" type="button"><i class="ph ph-arrows-clockwise"></i>저장자료 미리보기</button>
+              <button class="secondary-button" id="refreshStoragePreviewButton" type="button"><i class="ph ph-arrows-clockwise"></i>저장자료 미리보기</button>
               <p class="folder-label">선택한 저장 폴더의 기준 월 자료를 이미지 기준으로 확인합니다.</p>
               <div class="proof-preview-grid" id="storagePreviewList"></div>
             </div>

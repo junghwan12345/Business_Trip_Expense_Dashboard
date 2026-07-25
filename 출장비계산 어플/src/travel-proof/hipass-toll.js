@@ -89,6 +89,13 @@ export function isNoHipassTollResult(result) {
 
 function splitHipassReceiptBlocks(text) {
   const normalized = String(text || "");
+  const readableParts = normalized
+    .split(/(?=하이패스[\s\S]{0,40}영수증|영수증\s*한국도로공사|영수증\s*(?:\r?\n|\s)+20\d{2}년)/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (readableParts.length > 1) {
+    return readableParts;
+  }
   const parts = normalized
     .split(/(?=하이패스는\s+빠르고\s+편리합니다|영수증\s+한국도로공사)/g)
     .map((part) => part.trim())
@@ -143,6 +150,14 @@ function findHipassAmount(text) {
     if (match) {
       return parseWon(match[1]);
     }
+  }
+  const commonAmount = normalized.match(/(?:이용금액|사용금액|카드금액|결제금액|통행료|합계|공급가액)\D{0,16}(\d[\d,]*)\s*원/u);
+  if (commonAmount) {
+    return parseWon(commonAmount[1]);
+  }
+  const cardAmount = normalized.match(/(\d[\d,]*)\s*원\D{0,12}카드/u);
+  if (cardAmount) {
+    return parseWon(cardAmount[1]);
   }
   return 0;
 }

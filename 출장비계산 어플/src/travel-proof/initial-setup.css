@@ -340,36 +340,6 @@
   font-size: 13px;
 }
 
-.setup-gender-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  max-width: 720px;
-  margin: 10px auto 0;
-}
-
-.setup-gender-card {
-  flex-direction: row;
-  justify-content: center;
-  gap: 12px;
-  padding: 10px 18px;
-}
-
-.setup-gender-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  object-fit: cover;
-  object-position: center top;
-  background: var(--setup-primary-soft);
-  box-shadow: inset 0 0 0 1px var(--setup-border);
-}
-
-.setup-gender-card strong {
-  font-size: 15px;
-  font-weight: 700;
-}
-
 /* Role summary card */
 .setup-role-summary {
   display: flex;
@@ -468,17 +438,160 @@
   text-align: center;
 }
 
-.setup-trip-image {
-  width: 360px;
-  max-width: 100%;
-  margin-bottom: 2px;
-  object-fit: contain;
-}
-
 .setup-trip-title {
   margin: 4px 0 16px;
   font-size: 20px;
   font-weight: 800;
+}
+
+.setup-route-example {
+  width: min(430px, 100%);
+  margin: 0 auto 18px;
+  overflow: hidden;
+  border: 1px solid #d9e2ef;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+  text-align: left;
+}
+
+.setup-route-header {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid #edf2f7;
+  background: #ffffff;
+}
+
+.setup-route-header strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.setup-route-header span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.setup-route-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-bottom: 1px solid #e8eef7;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.setup-route-tabs span,
+.setup-route-tabs strong {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.setup-route-tabs strong {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.setup-route-box {
+  display: grid;
+  gap: 0;
+  padding: 10px 14px;
+}
+
+.setup-route-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.setup-route-row:last-child {
+  border-bottom: 0;
+}
+
+.setup-route-dot {
+  width: 8px;
+  height: 8px;
+  border: 2px solid #22c55e;
+  border-radius: 50%;
+}
+
+.setup-route-row.is-end .setup-route-dot {
+  border-color: #f43f5e;
+}
+
+.setup-route-row.is-waypoint .setup-route-dot {
+  border-color: #94a3b8;
+}
+
+.setup-route-row.is-waypoint strong {
+  color: #64748b;
+}
+
+.setup-route-row strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-route-row small {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--setup-primary-soft);
+  color: var(--setup-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.setup-route-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px 12px;
+  border-top: 1px solid #edf2f7;
+  background: #f8fafc;
+}
+
+.setup-route-footer span,
+.setup-route-footer strong {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.setup-route-footer span {
+  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  color: #2563eb;
+}
+
+.setup-route-footer strong {
+  background: #2563eb;
+  color: #ffffff;
 }
 
 .setup-field-stack {
@@ -833,7 +946,6 @@
   }
 
   .setup-role-grid,
-  .setup-gender-grid,
   .setup-budget-grid {
     grid-template-columns: 1fr;
   }

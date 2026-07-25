@@ -1,14 +1,17 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateUpdateManifest } from "../src/shared/update-channel.js";
 
 const APP_FOLDER = "BusinessTripProof";
+const DEFAULT_UPDATE_MANIFEST_URL = process.env.TRAVEL_PROOF_UPDATE_MANIFEST_URL
+  || "https://github.com/junghwan12345/Business_Trip_Expense_Dashboard/releases/latest/download/release-manifest.json";
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
-const appDataRoot = join(app.getPath("localAppData"), APP_FOLDER);
+const appDataRoot = join(resolveLocalAppData(), APP_FOLDER);
 app.setPath("userData", appDataRoot);
 process.env.TRAVEL_PROOF_DATA_ROOT = appDataRoot;
 process.env.TRAVEL_PROOF_CHROME_PROFILE = join(appDataRoot, "chrome-profile");
@@ -21,6 +24,14 @@ let installingUpdate = false;
 let updateStatus = { state: "idle", message: "업데이트 확인 전" };
 let pendingInstaller = "";
 let pendingVersion = "";
+
+function resolveLocalAppData() {
+  try {
+    return app.getPath("localAppData");
+  } catch {}
+  if (process.env.LOCALAPPDATA) return process.env.LOCALAPPDATA;
+  return join(homedir(), "AppData", "Local");
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -141,17 +152,15 @@ function registerDesktopIpc() {
 
 async function checkForUpdates() {
   try {
-    const settings = await readJson(join(appDataRoot, "personal-settings.json"));
+    const settings = await readOptionalJson(join(appDataRoot, "personal-settings.json"));
     const updateRoot = String(settings.updateRoot || "").trim();
-    if (!updateRoot) return setUpdateStatus("disabled", "업데이트 공유 폴더가 설정되지 않았습니다.");
-    const manifest = await readJson(join(updateRoot, "release-manifest.json"));
-    const installerSource = join(updateRoot, manifest.installerFile || "");
-    if (!existsSync(installerSource)) return setUpdateStatus("waiting-sync", "설치파일이 Drive에 동기화되기를 기다립니다.");
+    const updateSource = updateRoot
+      ? await readFolderUpdateSource(updateRoot)
+      : await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL);
+    if (updateSource.waiting) return setUpdateStatus(updateSource.state, updateSource.message);
 
-    const [installerBuffer, publicKey] = await Promise.all([
-      readFile(installerSource),
-      readUpdatePublicKey()
-    ]);
+    const { manifest, installerBuffer } = updateSource;
+    const publicKey = await readUpdatePublicKey();
     const validation = validateUpdateManifest(manifest, {
       currentVersion: app.getVersion(),
       installerBuffer,
@@ -164,7 +173,7 @@ async function checkForUpdates() {
     await mkdir(updateDirectory, { recursive: true });
     pendingInstaller = join(updateDirectory, manifest.installerFile);
     pendingVersion = manifest.version;
-    await copyFile(installerSource, pendingInstaller);
+    await writeFile(pendingInstaller, installerBuffer);
     await writeFile(join(appDataRoot, "update-state.json"), JSON.stringify({
       version: manifest.version,
       installer: pendingInstaller,
@@ -174,6 +183,45 @@ async function checkForUpdates() {
   } catch (error) {
     return setUpdateStatus("error", `업데이트 확인 실패: ${error.message}`);
   }
+}
+
+async function readFolderUpdateSource(updateRoot) {
+  const manifest = await readJson(join(updateRoot, "release-manifest.json"));
+  const installerSource = join(updateRoot, manifest.installerFile || "");
+  if (!existsSync(installerSource)) {
+    return {
+      waiting: true,
+      state: "waiting-sync",
+      message: "설치파일이 Drive에 동기화되기를 기다립니다."
+    };
+  }
+  return {
+    manifest,
+    installerBuffer: await readFile(installerSource)
+  };
+}
+
+async function readGithubUpdateSource(manifestUrl) {
+  const manifest = await fetchJson(manifestUrl);
+  const installerUrl = manifest.installerUrl || new URL(manifest.installerFile || "", manifestUrl).toString();
+  return {
+    manifest,
+    installerBuffer: await fetchBuffer(installerUrl)
+  };
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: { "Accept": "application/json" }
+  });
+  if (!response.ok) throw new Error(`업데이트 정보를 읽지 못했습니다. (${response.status})`);
+  return response.json();
+}
+
+async function fetchBuffer(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`업데이트 설치파일을 내려받지 못했습니다. (${response.status})`);
+  return Buffer.from(await response.arrayBuffer());
 }
 
 async function readUpdatePublicKey() {
@@ -192,6 +240,14 @@ async function readUpdatePublicKey() {
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function readOptionalJson(path) {
+  try {
+    return await readJson(path);
+  } catch {
+    return {};
+  }
 }
 
 function setUpdateStatus(state, message, manifest = null) {

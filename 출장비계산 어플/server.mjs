@@ -4,7 +4,7 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { access, copyFile, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, normalize, resolve } from "node:path";
 import { homedir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
 import { normalizeCorporateCardEntry } from "./src/travel-proof/corporate-card.js";
 import { HIPASS_TOLL_FOLDER } from "./src/travel-proof/hipass-toll.js";
@@ -31,7 +31,7 @@ import {
   parseTravelProofTable
 } from "./src/travel-proof/travel-proof.js";
 
-const root = process.cwd();
+const root = process.env.TRAVEL_PROOF_APP_ROOT || dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
 const personalDataRoot = resolvePersonalDataRoot();
@@ -75,7 +75,8 @@ const contentTypes = {
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
 
-const automationModulePromise = import("./src/travel-proof/naver-map-automation.js");
+let automationModuleVersion = 0;
+let automationModulePromise = import("./src/travel-proof/naver-map-automation.js");
 
 async function loadAutomationModule() {
   return automationModulePromise;
@@ -121,6 +122,11 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/prerequisites" && request.method === "GET") {
     await handlePrerequisites(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/update-refresh" && request.method === "POST") {
+    await handleUpdateRefresh(response);
     return;
   }
 
@@ -194,6 +200,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/travel-proof/toll-capture-batch-save" && request.method === "POST") {
+    await handleTollProofCaptureBatchSave(request, response);
+    return;
+  }
+
   if (url.pathname === "/api/travel-proof/coupang-capture" && request.method === "POST") {
     await handleCoupangProofCapture(request, response);
     return;
@@ -216,6 +227,11 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/proof-image-delete" && request.method === "POST") {
     await handleProofImageDelete(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/proof-file-exists" && request.method === "POST") {
+    await handleProofFileExists(request, response);
     return;
   }
 
@@ -334,6 +350,26 @@ async function handlePrerequisites(response) {
       chromeProfileRoot: process.env.TRAVEL_PROOF_CHROME_PROFILE || join(personalDataRoot, "chrome-profile")
     }
   });
+}
+
+async function handleUpdateRefresh(response) {
+  try {
+    const automation = await loadAutomationModule();
+    const resetResult = typeof automation.resetAutomationState === "function"
+      ? await automation.resetAutomationState()
+      : { closedTabs: 0 };
+    automationModuleVersion = Date.now();
+    automationModulePromise = import(`./src/travel-proof/naver-map-automation.js?refresh=${automationModuleVersion}`);
+    sendJson(response, {
+      ok: true,
+      result: {
+        ...resetResult,
+        refreshedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
 }
 
 function readPersonalSettingsSync() {
@@ -826,7 +862,11 @@ async function handleTollProofCapture(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureHipassTollReceipt } = await loadAutomationModule();
-    const result = await captureHipassTollReceipt(body.dateKey, { fastCapture: body.fastCapture });
+    const result = await withTimeout(
+      captureHipassTollReceipt(body.dateKey, { fastCapture: body.fastCapture }),
+      210000,
+      "통행료 홈페이지 로그인이 확인되지 않았거나 조회 화면으로 이동하지 못했습니다. 3분 안에 로그인 후 다시 시도해 주세요."
+    );
     sendJson(response, { ok: true, result });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
@@ -837,7 +877,11 @@ async function handleTollProofCaptureSave(request, response) {
   try {
     const body = await readJsonBody(request);
     const { captureHipassTollReceipt } = await loadAutomationModule();
-    const result = await captureHipassTollReceipt(body.dateKey, { fastCapture: body.fastCapture });
+    const result = await withTimeout(
+      captureHipassTollReceipt(body.dateKey, { fastCapture: body.fastCapture }),
+      210000,
+      "통행료 홈페이지 로그인이 확인되지 않았거나 조회 화면으로 이동하지 못했습니다. 3분 안에 로그인 후 다시 시도해 주세요."
+    );
     if (!Number(result.amountWon) || !result.imageBase64) {
       sendJson(response, { ok: true, result });
       return;
@@ -861,6 +905,46 @@ async function handleTollProofCaptureSave(request, response) {
         savedFileName: fileName
       }
     });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleTollProofCaptureBatchSave(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const dateKeys = Array.isArray(body.dateKeys) ? body.dateKeys.map((dateKey) => String(dateKey || "").trim()).filter(Boolean) : [];
+    if (!dateKeys.length) {
+      sendJson(response, { ok: true, results: [] });
+      return;
+    }
+    const { captureHipassTollReceipts } = await loadAutomationModule();
+    const batch = await withTimeout(
+      captureHipassTollReceipts(dateKeys, { fastCapture: body.fastCapture }),
+      210000,
+      "통행료 홈페이지 로그인이 확인되지 않았거나 조회 화면으로 이동하지 못했습니다. 3분 안에 로그인 후 다시 시도해 주세요."
+    );
+    const outputRoot = body.outputRoot || await storageRootFor("toll");
+    const savedResults = [];
+    for (const result of batch.results || []) {
+      if (!Number(result.amountWon) || !result.imageBase64) {
+        savedResults.push(result);
+        continue;
+      }
+      const monthKey = result.dateKey.slice(0, 7);
+      const outputDirectory = join(outputRoot, monthKey, HIPASS_TOLL_FOLDER);
+      await mkdir(outputDirectory, { recursive: true });
+      await ensureProofMonthFolders(outputRoot, monthKey);
+      const fileName = nextAvailableFileName(outputDirectory, result.fileName);
+      const filePath = join(outputDirectory, fileName);
+      await writeFile(filePath, Buffer.from(result.imageBase64, "base64"));
+      savedResults.push({
+        ...result,
+        savedPath: filePath,
+        savedFileName: fileName
+      });
+    }
+    sendJson(response, { ok: true, results: savedResults });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
   }
@@ -1031,6 +1115,35 @@ async function handleProofImageDelete(request, response) {
     }
     await unlink(filePath);
     sendJson(response, { ok: true, result: { deletedPath: filePath } });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function handleProofFileExists(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const paths = Array.isArray(body.paths) ? body.paths : [];
+    const candidates = Array.isArray(body.candidates) ? body.candidates : [];
+    const results = {};
+    for (const pathValue of paths) {
+      const filePath = String(pathValue || "").trim();
+      results[filePath] = filePath ? existsSync(filePath) : false;
+    }
+    const candidateResults = {};
+    for (const candidate of candidates) {
+      const monthKey = String(candidate?.monthKey || "").trim();
+      const folder = String(candidate?.folder || "").trim();
+      const fileName = String(candidate?.fileName || "").trim();
+      const key = [monthKey, folder, fileName].filter(Boolean).join("/");
+      candidateResults[key] = false;
+      if (!monthKey || !folder || !fileName) continue;
+      const storageType = candidate?.type === "oil" ? "oil" : candidate?.type === "toll" ? "toll" : "route";
+      const outputRoot = body.outputRoot || await storageRootFor(storageType);
+      const filePath = join(outputRoot, monthKey, folder, fileName);
+      candidateResults[key] = existsSync(filePath);
+    }
+    sendJson(response, { ok: true, result: { paths: results, candidates: candidateResults } });
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 400);
   }
@@ -1536,12 +1649,17 @@ async function groupsWithPreviewData(groups) {
 }
 
 async function imagesWithPreviewData(images) {
-  return Promise.all((images || []).map(async (image) => ({
-    type: image.type,
-    name: image.name,
-    dateKey: image.dateKey,
-    dataUri: await imageDataUri(image.path)
-  })));
+  return Promise.all((images || []).map(async (image) => {
+    const fileStat = await stat(image.path).catch(() => null);
+    return {
+      type: image.type,
+      name: image.name,
+      dateKey: image.dateKey,
+      savedPath: image.path,
+      sizeBytes: fileStat?.size || 0,
+      dataUri: await imageDataUri(image.path)
+    };
+  }));
 }
 
 async function imageDataUri(filePath) {
@@ -1570,6 +1688,14 @@ function nextAvailableFileName(directory, preferredName) {
 function sendJson(response, payload, status = 200) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload));
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 function readJsonBody(request, options = {}) {
