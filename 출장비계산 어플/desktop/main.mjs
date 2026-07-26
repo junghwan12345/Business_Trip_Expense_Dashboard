@@ -137,14 +137,19 @@ function registerDesktopIpc() {
 }
 
 async function startDesktopServer(startServer) {
-  try {
-    return await startServer({ port: DESKTOP_SERVER_PORT, host: "127.0.0.1" });
-  } catch (error) {
-    if (error?.code !== "EADDRINUSE") {
-      throw error;
+  // localStorage(설정·거리유류대·통행료 계산값)는 origin(포트)별로 저장됩니다.
+  // 업데이트 재실행 순간 이전 버전이 아직 포트를 놓지 않아 무작위 포트로 바뀌면
+  // 저장값이 사라진 것처럼 보이므로, 같은 포트가 풀릴 때까지 잠깐 기다렸다 재시도합니다.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      return await startServer({ port: DESKTOP_SERVER_PORT, host: "127.0.0.1" });
+    } catch (error) {
+      if (error?.code !== "EADDRINUSE") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    return startServer({ port: 0, host: "127.0.0.1" });
   }
+  // 최후에도 안 되면 무작위 포트 대신 고정 대체 포트를 사용해 origin을 최대한 안정적으로 유지합니다.
+  return startServer({ port: DESKTOP_SERVER_PORT + 1, host: "127.0.0.1" });
 }
 
 function resolveAppIconPath() {

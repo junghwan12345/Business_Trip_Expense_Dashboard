@@ -123,6 +123,9 @@ const STORAGE_SETTING_GROUPS = [
 let autoPreviewTimer = null;
 let autoProofPreviewTimer = null;
 let persistentAppStateTimer = null;
+// 서버 백업 복원(hydrate)이 끝나기 전에는 저장하지 않습니다.
+// (복원 전 빈 localStorage가 서버 백업 파일을 덮어써 기록이 사라지는 것을 방지)
+let appStateHydrated = false;
 const EXCEL_FIELD_PREVIEW_LIMIT = 5;
 const CORPORATE_CARD_PREVIEW_LIMIT = 6;
 // 헤더 정렬·필터 칩 관련 모듈 상수 (초기 렌더 전에 초기화되도록 최상단에 선언)
@@ -4091,6 +4094,9 @@ function schedulePersistentAppStateSave() {
 }
 
 async function savePersistentAppState() {
+  if (!appStateHydrated) {
+    return;
+  }
   try {
     await fetch(PERSISTENT_APP_STATE_ENDPOINT, {
       method: "POST",
@@ -4110,22 +4116,19 @@ async function savePersistentAppState() {
 
 async function hydratePersistentAppState() {
   if (PROTOTYPE_PREVIEW) {
+    appStateHydrated = true;
     return;
   }
   try {
     const response = await fetch(PERSISTENT_APP_STATE_ENDPOINT);
     const data = await response.json();
-    if (!data.ok || !data.state) {
-      return;
+    if (data.ok && data.state && mergePersistentAppState(data.state)) {
+      applyHydratedAppState();
     }
-    const changed = mergePersistentAppState(data.state);
-    if (!changed) {
-      schedulePersistentAppStateSave();
-      return;
-    }
-    applyHydratedAppState();
-    schedulePersistentAppStateSave();
   } catch {}
+  // 서버 백업을 읽어 복원을 마친 뒤에야 저장을 허용합니다.
+  appStateHydrated = true;
+  schedulePersistentAppStateSave();
 }
 
 function mergePersistentAppState(persistedState) {
