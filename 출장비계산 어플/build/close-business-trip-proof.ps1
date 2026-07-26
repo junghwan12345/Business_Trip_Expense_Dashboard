@@ -10,8 +10,7 @@ $dataRoot = Join-Path $localAppData "BusinessTripProof"
 $matchTexts = @(
   "business-trip-proof",
   "BusinessTripProof",
-  "출장비 증빙 정리",
-  $dataRoot
+  "출장비 증빙 정리"
 ) + $installRoots
 $safeInstallerPattern = "BusinessTripProof-*-Setup.exe"
 $deadline = (Get-Date).AddSeconds(45)

@@ -31,11 +31,18 @@ const UPDATE_HELPER_SCRIPT = String.raw`
 param([string]$OptionsPath)
 $ErrorActionPreference = "SilentlyContinue"
 
+function Write-UpdateLog {
+  param([string]$Message)
+  if (-not $script:LogFile) { return }
+  "[$(Get-Date -Format o)] $Message" | Add-Content -LiteralPath $script:LogFile -Encoding UTF8
+}
+
 function Wait-ParentExit {
   param([int]$ParentPid, [int]$TimeoutSeconds)
   if ($ParentPid -le 0) { return }
   $process = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
   if ($null -ne $process) {
+    Write-UpdateLog "waiting parent pid=$ParentPid"
     Wait-Process -Id $ParentPid -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
   }
 }
@@ -44,22 +51,32 @@ function Stop-OldApp {
   param([string]$AppExecutable)
   $appName = [System.IO.Path]::GetFileNameWithoutExtension($AppExecutable)
   if (-not $appName) { return }
+  Write-UpdateLog "stopping old app name=$appName"
   Get-Process -Name $appName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Milliseconds 1200
 }
 
 function Run-Installer {
   param([string]$InstallerPath)
+  Write-UpdateLog "running installer=$InstallerPath"
+  if (-not (Test-Path -LiteralPath $InstallerPath)) {
+    Write-UpdateLog "installer missing"
+    return $false
+  }
   $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -WindowStyle Hidden -Wait -PassThru
+  Write-UpdateLog "installer exitCode=$($process.ExitCode)"
   return $process.ExitCode -eq 0
 }
 
 function Launch-App {
   param([string]$AppExecutable)
+  Write-UpdateLog "launching app=$AppExecutable"
   Start-Process -FilePath $AppExecutable -WindowStyle Hidden | Out-Null
 }
 
 $options = Get-Content -LiteralPath $OptionsPath -Raw | ConvertFrom-Json
+$script:LogFile = [string]$options.logFile
+Write-UpdateLog "helper start target=$($options.installer)"
 Wait-ParentExit -ParentPid ([int]$options.parentPid) -TimeoutSeconds 45
 Stop-OldApp -AppExecutable ([string]$options.appExecutable)
 
@@ -71,14 +88,17 @@ if (-not $installed) {
 }
 
 if ($installed) {
+  Write-UpdateLog "install success"
   Launch-App -AppExecutable ([string]$options.appExecutable)
   exit 0
 }
 
 if ($options.previousInstaller -and (Test-Path -LiteralPath ([string]$options.previousInstaller))) {
+  Write-UpdateLog "install failed, running previous installer"
   Run-Installer -InstallerPath ([string]$options.previousInstaller) | Out-Null
   Launch-App -AppExecutable ([string]$options.appExecutable)
 }
+Write-UpdateLog "install failed"
 exit 1
 `;
 
@@ -138,7 +158,8 @@ app.on("before-quit", (event) => {
       installer: pendingInstaller,
       previousInstaller: existsSync(previousInstaller) ? previousInstaller : "",
       appExecutable: process.execPath,
-      healthFile
+      healthFile,
+      logFile: join(appDataRoot, "update-helper.log")
     }, null, 2));
     await writeFile(helperScript, UPDATE_HELPER_SCRIPT, "utf8");
     const child = spawn("powershell.exe", [
