@@ -59,7 +59,16 @@ function Invoke-ExcelCom($scriptBlock, $label) {
 }
 
 function Get-ExcelApplication {
-  return New-Object -ComObject Excel.Application
+  try {
+    return New-Object -ComObject Excel.Application
+  } catch {
+    $message = $_.Exception.Message
+    $hresult = $_.Exception.HResult
+    if ($hresult -eq -2147221164 -or $message -match "80040154|REGDB_E_CLASSNOTREG|Class not registered") {
+      throw "Microsoft Excel 데스크톱 앱이 설치되어 있지 않거나 Excel COM 등록이 깨져 있습니다. Microsoft 365/Office의 Excel을 설치하거나 Office 빠른 복구를 실행한 뒤 다시 시도해 주세요. Excel 웹, Excel Viewer, WPS만으로는 지출결의서 직접 작성 기능을 사용할 수 없습니다."
+    }
+    throw
+  }
 }
 
 function Get-WorksheetByIndex($workbook, $index) {

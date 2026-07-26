@@ -1,7 +1,7 @@
 {
   "name": "business-trip-proof",
   "productName": "출장비 증빙 정리",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "private": true,
   "type": "module",
   "main": "desktop/main.mjs",
@@ -39,6 +39,10 @@
     "compression": "store",
     "extraResources": [
       {
+        "from": "build/app-icon.ico",
+        "to": "app-icon.ico"
+      },
+      {
         "from": "build/update-public-key.pem",
         "to": "update-public-key.pem"
       },
@@ -48,6 +52,7 @@
       }
     ],
     "win": {
+      "icon": "build/app-icon.ico",
       "target": [
         "nsis"
       ],

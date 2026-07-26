@@ -11,6 +11,7 @@ const APP_FOLDER = "BusinessTripProof";
 const DEFAULT_UPDATE_MANIFEST_URL = process.env.TRAVEL_PROOF_UPDATE_MANIFEST_URL
   || "https://github.com/junghwan12345/Business_Trip_Expense_Dashboard/releases/latest/download/release-manifest.json";
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+const appIconPath = resolveAppIconPath();
 const appDataRoot = join(resolveLocalAppData(), APP_FOLDER);
 app.setPath("userData", appDataRoot);
 process.env.TRAVEL_PROOF_DATA_ROOT = appDataRoot;
@@ -170,6 +171,7 @@ function createWindow(port) {
     show: false,
     backgroundColor: "#f8fafc",
     autoHideMenuBar: true,
+    icon: appIconPath,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -216,6 +218,14 @@ function registerDesktopIpc() {
     app.quit();
     return setUpdateStatus("installing", "앱을 종료하고 업데이트를 설치합니다.");
   });
+}
+
+function resolveAppIconPath() {
+  const candidates = [
+    join(process.resourcesPath || "", "app-icon.ico"),
+    fileURLToPath(new URL("../build/app-icon.ico", import.meta.url))
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) || undefined;
 }
 
 async function checkForUpdates() {

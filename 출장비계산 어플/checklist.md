@@ -166,3 +166,18 @@
 - [ ] 테스트와 설치파일 빌드를 실행한다.
 - [ ] 1.1.7을 GitHub Release로 배포한다.
 
+
+# 2026-07-26 Excel COM 미등록 안내 개선
+- [x] 1.1.7 지출결의서 만들기에서 Excel COM Class not registered 오류가 발생함을 확인한다.
+- [x] Excel COM 미설치/등록 깨짐 상황을 사용자가 이해할 수 있는 안내 메시지로 바꾼다.
+- [ ] 테스트와 설치파일 빌드를 실행한다.
+- [ ] 1.1.8을 GitHub Release로 배포한다.
+
+
+# 2026-07-26 앱 아이콘 변경
+- [x] 선택한 엑셀/PPT 겹침형 아이콘 이미지를 프로젝트 빌드 리소스로 복사한다.
+- [x] 윈도우 설치파일용 app-icon.ico를 생성한다.
+- [x] Electron 창 아이콘과 electron-builder 윈도우 아이콘 설정에 연결한다.
+- [ ] 문법 검사와 테스트를 실행한다.
+- [x] 문법 검사와 테스트를 실행했다. node -c desktop/main.mjs, node --test tests/*.test.mjs 통과.
+- [x] 1.1.8 설치파일 빌드를 실행했다. dist/BusinessTripProof-1.1.8-Setup.exe 생성 완료.

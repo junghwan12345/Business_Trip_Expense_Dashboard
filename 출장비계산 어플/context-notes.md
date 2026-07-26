@@ -134,3 +134,13 @@
 - 1.1.7은 Win32_Process의 ExecutablePath, CommandLine, Name을 모두 검사하고 business-trip-proof, BusinessTripProof, 앱 한글명, 데이터 폴더, 설치 폴더 문자열을 모두 매칭한다.
 - 설치파일 자신은 BusinessTripProof-*-Setup.exe 패턴으로 제외하고, 정리 결과를 %LOCALAPPDATA%\BusinessTripProof\update-cleanup.log에 남겨 다음 실패 시 실제 남은 프로세스를 확인할 수 있게 한다.
 
+
+# 2026-07-26 Excel COM 미등록 안내 개선
+- HRESULT 0x80040154 REGDB_E_CLASSNOTREG는 Excel.Application COM 클래스가 등록되어 있지 않다는 뜻이다. 앱의 직접 Excel 작성 기능은 Microsoft Excel 데스크톱 COM 자동화가 필요하므로 Excel 웹, Viewer, WPS만 설치된 PC에서는 사용할 수 없다.
+- 기능 자체를 COM 없이 대체하려면 추후 xlsx 템플릿 직접 편집 방식으로 별도 구현이 필요하다. 이번 조치는 사용자가 원인을 알 수 있도록 오류 메시지를 명확히 하는 범위다.
+
+
+# 2026-07-26 앱 아이콘 변경
+- 사용자가 선택한 최종 방향은 공식 Excel/PPT 로고를 그대로 쓰지 않고, 초록 스프레드시트 문서와 주황 프레젠테이션 문서를 겹친 형태다.
+- 배포용 아이콘에는 상표 로고와 글자를 넣지 않고 기능을 연상시키는 일반 문서 심볼만 사용한다.
+- build/app-icon.png는 원본 보관용이고, build/app-icon.ico는 Windows 실행파일과 설치 바로가기 아이콘용이다.
