@@ -56,6 +56,7 @@ const GENERAL_TRAVEL_STORAGE_KEY = "travel-proof:general-travel-entries";
 const FUEL_ROWS_STORAGE_KEY = "travel-proof:fuel-rows";
 const TOLL_ROWS_STORAGE_KEY = "travel-proof:toll-rows";
 const APP_SETTINGS_STORAGE_KEY = "travel-proof:app-settings";
+const PERSISTENT_APP_STATE_ENDPOINT = "/api/travel-proof/app-state";
 const FAST_CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("captureMode") !== "legacy";
 const PROTOTYPE_PREVIEW = new URLSearchParams(window.location.search).get("prototype") === "1";
 const PAGE_META = Object.freeze({
@@ -121,6 +122,7 @@ const STORAGE_SETTING_GROUPS = [
 ];
 let autoPreviewTimer = null;
 let autoProofPreviewTimer = null;
+let persistentAppStateTimer = null;
 const EXCEL_FIELD_PREVIEW_LIMIT = 5;
 const CORPORATE_CARD_PREVIEW_LIMIT = 6;
 // 헤더 정렬·필터 칩 관련 모듈 상수 (초기 렌더 전에 초기화되도록 최상단에 선언)
@@ -542,6 +544,7 @@ loadCorporateCardLedger();
 loadPersonalStorage();
 initializeDesktopBridge();
 initializeInitialSetup();
+hydratePersistentAppState();
 
 if (!("showDirectoryPicker" in window) && !window.desktopBridge) {
   elements.browserStatus.textContent = "서버 저장";
@@ -769,8 +772,19 @@ function renderDesktopUpdateStatus(status = {}) {
   elements.updateStatusLabel.textContent = status.message || "업데이트 확인 전";
   elements.updateStatusLabel.title = status.message || "";
   if (elements.updateRefreshButton && window.desktopBridge) {
-    elements.updateRefreshButton.innerHTML = '<i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 업데이트 확인';
-    elements.updateRefreshButton.disabled = status.state === "installing";
+    const hasUpdate = status.state === "ready";
+    const buttonLabel = hasUpdate
+      ? "업데이트 설치"
+      : status.state === "installing"
+        ? "설치 중"
+        : status.state === "current"
+          ? "최신 버전"
+          : status.state === "error" || status.state === "rejected"
+            ? "확인 필요"
+            : "업데이트 확인 전";
+    const buttonIcon = hasUpdate ? "ph-download-simple" : status.state === "installing" ? "ph-spinner-gap" : "ph-check-circle";
+    elements.updateRefreshButton.innerHTML = `<i class="ph ${buttonIcon}" aria-hidden="true"></i> ${buttonLabel}`;
+    elements.updateRefreshButton.disabled = !hasUpdate;
   }
 }
 
@@ -789,6 +803,8 @@ async function refreshUpdatedApp() {
         elements.updateRefreshButton.innerHTML = '<i class="ph ph-spinner-gap" aria-hidden="true"></i> 설치 준비';
         elements.updateStatusLabel.textContent = "앱을 종료하고 업데이트를 설치합니다.";
         await window.desktopBridge.installUpdate();
+      } else {
+        renderDesktopUpdateStatus(status);
       }
       return;
     }
@@ -4049,6 +4065,7 @@ function readLocalEntries(key) {
 
 function writeLocalEntries(key, entries) {
   localStorage.setItem(key, JSON.stringify(entries || []));
+  schedulePersistentAppStateSave();
 }
 
 function readAppSettings() {
@@ -4062,6 +4079,103 @@ function readAppSettings() {
 
 function writeAppSettings(settings) {
   localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings || {}));
+  schedulePersistentAppStateSave();
+}
+
+function schedulePersistentAppStateSave() {
+  if (PROTOTYPE_PREVIEW) {
+    return;
+  }
+  window.clearTimeout(persistentAppStateTimer);
+  persistentAppStateTimer = window.setTimeout(savePersistentAppState, 250);
+}
+
+async function savePersistentAppState() {
+  try {
+    await fetch(PERSISTENT_APP_STATE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        state: {
+          updatedAt: new Date().toISOString(),
+          appSettings: readAppSettings(),
+          generalTravelEntries: readLocalEntries(GENERAL_TRAVEL_STORAGE_KEY),
+          fuelRows: readLocalEntries(FUEL_ROWS_STORAGE_KEY),
+          tollRows: readLocalEntries(TOLL_ROWS_STORAGE_KEY)
+        }
+      })
+    });
+  } catch {}
+}
+
+async function hydratePersistentAppState() {
+  if (PROTOTYPE_PREVIEW) {
+    return;
+  }
+  try {
+    const response = await fetch(PERSISTENT_APP_STATE_ENDPOINT);
+    const data = await response.json();
+    if (!data.ok || !data.state) {
+      return;
+    }
+    const changed = mergePersistentAppState(data.state);
+    if (!changed) {
+      schedulePersistentAppStateSave();
+      return;
+    }
+    applyHydratedAppState();
+    schedulePersistentAppStateSave();
+  } catch {}
+}
+
+function mergePersistentAppState(persistedState) {
+  let changed = false;
+  const currentSettings = readAppSettings();
+  const persistedSettings = persistedState.appSettings && typeof persistedState.appSettings === "object" && !Array.isArray(persistedState.appSettings)
+    ? persistedState.appSettings
+    : {};
+  const mergedSettings = { ...persistedSettings, ...currentSettings };
+  if (Object.keys(persistedSettings).length && JSON.stringify(mergedSettings) !== JSON.stringify(currentSettings)) {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(mergedSettings));
+    changed = true;
+  }
+
+  const entryMappings = [
+    [GENERAL_TRAVEL_STORAGE_KEY, persistedState.generalTravelEntries],
+    [FUEL_ROWS_STORAGE_KEY, persistedState.fuelRows],
+    [TOLL_ROWS_STORAGE_KEY, persistedState.tollRows]
+  ];
+  for (const [key, persistedEntries] of entryMappings) {
+    const currentEntries = readLocalEntries(key);
+    if (!currentEntries.length && Array.isArray(persistedEntries) && persistedEntries.length) {
+      localStorage.setItem(key, JSON.stringify(persistedEntries));
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function applyHydratedAppState() {
+  const settings = readAppSettings();
+  elements.startInput.value = settings.defaultStart || elements.startInput.value || "태왕디아너스오페라";
+  elements.destinationInput.value = settings.defaultDestination || elements.destinationInput.value || "태왕디아너스오페라";
+  elements.settingsStartInput.value = elements.startInput.value;
+  elements.settingsDestinationInput.value = elements.destinationInput.value;
+  if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = settings.authorName || "";
+  if (settings.welfarePeople) {
+    elements.coupangPeopleInput.value = settings.welfarePeople;
+    elements.settingsPeopleInput.value = settings.welfarePeople;
+  }
+  renderSettingsRoleButtons(settings.userRole || "manager");
+  state.generalTravelEntries = readLocalEntries(GENERAL_TRAVEL_STORAGE_KEY);
+  state.fuelRows = readLocalEntries(FUEL_ROWS_STORAGE_KEY);
+  state.tollRows = readLocalEntries(TOLL_ROWS_STORAGE_KEY);
+  refreshSettingsPreview();
+  renderCoupangLimitSummary();
+  renderLedger();
+  renderExcelPasteOutputs();
+  renderPreview();
+  scheduleAutoPreview();
 }
 
 function clearManualInputs(inputs) {

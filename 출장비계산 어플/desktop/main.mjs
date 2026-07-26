@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { validateUpdateManifest } from "../src/shared/update-channel.js";
 
 const APP_FOLDER = "BusinessTripProof";
+const DESKTOP_SERVER_PORT = Number(process.env.TRAVEL_PROOF_DESKTOP_PORT || 41731);
 const DEFAULT_UPDATE_MANIFEST_URL = process.env.TRAVEL_PROOF_UPDATE_MANIFEST_URL
   || "https://github.com/junghwan12345/Business_Trip_Expense_Dashboard/releases/latest/download/release-manifest.json";
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
@@ -103,7 +104,7 @@ if (!app.requestSingleInstanceLock()) {
 app.whenReady().then(async () => {
   await mkdir(appDataRoot, { recursive: true });
   const { startServer } = await import("../server.mjs");
-  localServer = await startServer({ port: 0, host: "127.0.0.1" });
+  localServer = await startDesktopServer(startServer);
   createWindow(localServer.port);
   registerDesktopIpc();
   await checkForUpdates();
@@ -218,6 +219,17 @@ function registerDesktopIpc() {
     app.quit();
     return setUpdateStatus("installing", "앱을 종료하고 업데이트를 설치합니다.");
   });
+}
+
+async function startDesktopServer(startServer) {
+  try {
+    return await startServer({ port: DESKTOP_SERVER_PORT, host: "127.0.0.1" });
+  } catch (error) {
+    if (error?.code !== "EADDRINUSE") {
+      throw error;
+    }
+    return startServer({ port: 0, host: "127.0.0.1" });
+  }
 }
 
 function resolveAppIconPath() {

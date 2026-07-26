@@ -53,6 +53,7 @@ const STORAGE_SETTING_KEYS = [
   "ledger"
 ];
 const STORAGE_SETTINGS_FILE = join("settings", "storage-settings.json");
+const APP_STATE_FILE = join("settings", "app-state.json");
 const EXPENSE_LEDGER_FILE = "expense-ledger.json";
 const CORPORATE_CARD_LEDGER_FILE = "corporate-card-ledger.json";
 const EXTERNAL_RECEIPT_OWNER_FOLDER = "배정환";
@@ -132,6 +133,16 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === "/api/travel-proof/storage-settings" && request.method === "POST") {
     await handleStorageSettingsUpdate(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/app-state" && request.method === "GET") {
+    await handleAppStateRead(response);
+    return;
+  }
+
+  if (url.pathname === "/api/travel-proof/app-state" && request.method === "POST") {
+    await handleAppStateWrite(request, response);
     return;
   }
 
@@ -478,6 +489,54 @@ async function handleStorageSettingsUpdate(request, response) {
   } catch (error) {
     sendJson(response, { ok: false, message: error.message }, 500);
   }
+}
+
+async function handleAppStateRead(response) {
+  try {
+    sendJson(response, { ok: true, state: await readAppState() });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
+}
+
+async function handleAppStateWrite(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const nextState = normalizeAppState(body.state || {});
+    await writeAppState(nextState);
+    sendJson(response, { ok: true, state: nextState });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 400);
+  }
+}
+
+async function readAppState() {
+  const filePath = join(personalDataRoot, APP_STATE_FILE);
+  try {
+    const text = await readFile(filePath, "utf8");
+    return normalizeAppState(JSON.parse(text));
+  } catch {
+    return normalizeAppState();
+  }
+}
+
+async function writeAppState(state) {
+  const filePath = join(personalDataRoot, APP_STATE_FILE);
+  await mkdir(join(personalDataRoot, "settings"), { recursive: true });
+  await writeFile(filePath, JSON.stringify(normalizeAppState(state), null, 2), "utf8");
+}
+
+function normalizeAppState(state = {}) {
+  return {
+    version: 1,
+    updatedAt: state.updatedAt || new Date().toISOString(),
+    appSettings: state.appSettings && typeof state.appSettings === "object" && !Array.isArray(state.appSettings)
+      ? state.appSettings
+      : {},
+    generalTravelEntries: Array.isArray(state.generalTravelEntries) ? state.generalTravelEntries : [],
+    fuelRows: Array.isArray(state.fuelRows) ? state.fuelRows : [],
+    tollRows: Array.isArray(state.tollRows) ? state.tollRows : []
+  };
 }
 
 async function handleExpenseLedgerRead(response) {

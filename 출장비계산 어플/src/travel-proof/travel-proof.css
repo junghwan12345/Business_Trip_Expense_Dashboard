@@ -233,7 +233,7 @@ body {
 
 .sidebar-footer span,
 .sidebar-footer strong,
-.sidebar-footer small {
+#appVersionLabel {
   display: none;
 }
 
@@ -243,7 +243,8 @@ body {
   margin-bottom: 4px;
 }
 
-.sidebar-footer small {
+#updateStatusLabel {
+  display: block;
   margin-top: 6px;
   color: var(--muted);
   font-size: 11px;
@@ -278,8 +279,10 @@ body {
 }
 
 .update-refresh-button:disabled {
-  cursor: wait;
-  opacity: 0.72;
+  cursor: default;
+  color: #94a3b8;
+  background: #f8fafc;
+  opacity: 1;
 }
 
 .app-main {
