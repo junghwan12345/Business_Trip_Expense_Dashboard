@@ -9,6 +9,11 @@ const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"
 const version = String(args.version || packageJson.version || "");
 const configuredUpdateRoot = String(args["update-root"] || process.env.TRAVEL_PROOF_UPDATE_ROOT || "").trim();
 const updateRoot = configuredUpdateRoot ? resolve(configuredUpdateRoot) : "";
+const installerUrl = String(
+  args["installer-url"]
+  || process.env.TRAVEL_PROOF_UPDATE_INSTALLER_URL
+  || `https://github.com/junghwan12345/Business_Trip_Expense_Dashboard/releases/latest/download/BusinessTripProof-${version}-Setup.exe`
+).trim();
 const privateKeyPath = resolve(String(args.key || process.env.TRAVEL_PROOF_UPDATE_PRIVATE_KEY || join("private", "update-private-key.pem")));
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("--version에 x.y.z 버전을 입력해 주세요.");
 if (!existsSync(privateKeyPath)) throw new Error("업데이트 개인키가 없습니다. npm run update:keys를 먼저 실행하세요.");
@@ -19,6 +24,7 @@ const installerFile = basename(installer);
 const manifest = {
   version,
   installerFile,
+  installerUrl,
   sha256: sha256Hex(installerBuffer),
   publishedAt: new Date().toISOString(),
   releaseNotes: String(args.notes || "")

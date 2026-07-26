@@ -222,9 +222,12 @@ async function checkForUpdates() {
   try {
     const settings = await readOptionalJson(join(appDataRoot, "personal-settings.json"));
     const updateRoot = String(settings.updateRoot || "").trim();
-    const updateSource = updateRoot
-      ? await readFolderUpdateSource(updateRoot)
+    let updateSource = updateRoot
+      ? await readFolderUpdateSource(updateRoot).catch(() => readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL))
       : await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL);
+    if (updateRoot && updateSource.waiting) {
+      updateSource = await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL);
+    }
     if (updateSource.waiting) return setUpdateStatus(updateSource.state, updateSource.message);
 
     const { manifest, installerBuffer } = updateSource;
@@ -247,7 +250,7 @@ async function checkForUpdates() {
       installer: pendingInstaller,
       verifiedAt: new Date().toISOString()
     }, null, 2));
-    return setUpdateStatus("ready", `${manifest.version} 업데이트가 앱 종료 후 설치됩니다.`, manifest);
+    return setUpdateStatus("ready", `${manifest.version} 다운로드 완료. 앱을 완전히 종료하면 업데이트가 설치됩니다.`, manifest);
   } catch (error) {
     return setUpdateStatus("error", `업데이트 확인 실패: ${error.message}`);
   }
