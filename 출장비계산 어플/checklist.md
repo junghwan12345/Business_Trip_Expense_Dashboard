@@ -158,3 +158,11 @@
 - [ ] 테스트와 설치파일 빌드를 실행한다.
 - [ ] 1.1.6 manifest를 생성하고 GitHub Release로 배포한다.
 
+
+# 2026-07-26 1.1.7 설치 잠금 재보강
+- [x] 1.1.6에서도 기존 앱 제거 실패가 반복됨을 확인한다.
+- [x] 설치 전 정리 스크립트를 Get-Process Path 중심에서 Win32_Process CommandLine 포함 방식으로 강화한다.
+- [x] 정리 로그를 BusinessTripProof update-cleanup.log에 남기도록 한다.
+- [ ] 테스트와 설치파일 빌드를 실행한다.
+- [ ] 1.1.7을 GitHub Release로 배포한다.
+

@@ -128,3 +128,9 @@
 - 1.1.1에서 업데이트 버튼을 눌렀을 때 설치파일은 실행되지만 기존 앱 제거 단계에서 실패했다. 이는 다운로드 문제가 아니라 설치 전 기존 앱 또는 1.1.1 업데이트 도우미가 설치 폴더의 파일을 계속 붙잡는 문제다.
 - 1.1.5의 NSIS customInit은 한 줄 PowerShell 명령이라 실행 경로나 종료 대기 시간이 부족할 수 있다. 1.1.6에서는 build 리소스의 PowerShell 파일을 설치파일에 포함하고, 최대 30초 동안 경로와 프로세스명 기준으로 반복 종료하도록 변경한다.
 
+
+# 2026-07-26 1.1.7 설치 잠금 재보강
+- 1.1.6에서도 동일한 기존 앱 제거 실패가 발생했다. 1.1.6 정리 스크립트가 Get-Process Path에 의존했기 때문에 다른 PC에서 Path 접근이 비어 있거나 명령줄에만 흔적이 있는 업데이트 도우미를 놓쳤을 가능성이 높다.
+- 1.1.7은 Win32_Process의 ExecutablePath, CommandLine, Name을 모두 검사하고 business-trip-proof, BusinessTripProof, 앱 한글명, 데이터 폴더, 설치 폴더 문자열을 모두 매칭한다.
+- 설치파일 자신은 BusinessTripProof-*-Setup.exe 패턴으로 제외하고, 정리 결과를 %LOCALAPPDATA%\BusinessTripProof\update-cleanup.log에 남겨 다음 실패 시 실제 남은 프로세스를 확인할 수 있게 한다.
+
