@@ -1,7 +1,7 @@
 {
   "name": "business-trip-proof",
   "productName": "출장비 증빙 정리",
-  "version": "1.1.12",
+  "version": "1.1.14",
   "private": true,
   "type": "module",
   "main": "desktop/main.mjs",
@@ -60,7 +60,7 @@
       "artifactName": "BusinessTripProof-${version}-Setup.${ext}"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
       "allowElevation": false,
       "allowToChangeInstallationDirectory": false,

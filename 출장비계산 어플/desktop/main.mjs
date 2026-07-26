@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -26,81 +25,6 @@ let installingUpdate = false;
 let updateStatus = { state: "idle", message: "업데이트 확인 전" };
 let pendingInstaller = "";
 let pendingVersion = "";
-
-const UPDATE_HELPER_SCRIPT = String.raw`
-param([string]$OptionsPath)
-$ErrorActionPreference = "SilentlyContinue"
-
-function Write-UpdateLog {
-  param([string]$Message)
-  if (-not $script:LogFile) { return }
-  "[$(Get-Date -Format o)] $Message" | Add-Content -LiteralPath $script:LogFile -Encoding UTF8
-}
-
-function Wait-ParentExit {
-  param([int]$ParentPid, [int]$TimeoutSeconds)
-  if ($ParentPid -le 0) { return }
-  $process = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
-  if ($null -ne $process) {
-    Write-UpdateLog "waiting parent pid=$ParentPid"
-    Wait-Process -Id $ParentPid -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
-  }
-}
-
-function Stop-OldApp {
-  param([string]$AppExecutable)
-  $appName = [System.IO.Path]::GetFileNameWithoutExtension($AppExecutable)
-  if (-not $appName) { return }
-  Write-UpdateLog "stopping old app name=$appName"
-  Get-Process -Name $appName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Milliseconds 1200
-}
-
-function Run-Installer {
-  param([string]$InstallerPath)
-  Write-UpdateLog "running installer=$InstallerPath"
-  if (-not (Test-Path -LiteralPath $InstallerPath)) {
-    Write-UpdateLog "installer missing"
-    return $false
-  }
-  $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -WindowStyle Hidden -Wait -PassThru
-  Write-UpdateLog "installer exitCode=$($process.ExitCode)"
-  return $process.ExitCode -eq 0
-}
-
-function Launch-App {
-  param([string]$AppExecutable)
-  Write-UpdateLog "launching app=$AppExecutable"
-  Start-Process -FilePath $AppExecutable -WindowStyle Hidden | Out-Null
-}
-
-$options = Get-Content -LiteralPath $OptionsPath -Raw | ConvertFrom-Json
-$script:LogFile = [string]$options.logFile
-Write-UpdateLog "helper start target=$($options.installer)"
-Wait-ParentExit -ParentPid ([int]$options.parentPid) -TimeoutSeconds 45
-Stop-OldApp -AppExecutable ([string]$options.appExecutable)
-
-$installed = Run-Installer -InstallerPath ([string]$options.installer)
-if (-not $installed) {
-  Start-Sleep -Seconds 2
-  Stop-OldApp -AppExecutable ([string]$options.appExecutable)
-  $installed = Run-Installer -InstallerPath ([string]$options.installer)
-}
-
-if ($installed) {
-  Write-UpdateLog "install success"
-  Launch-App -AppExecutable ([string]$options.appExecutable)
-  exit 0
-}
-
-if ($options.previousInstaller -and (Test-Path -LiteralPath ([string]$options.previousInstaller))) {
-  Write-UpdateLog "install failed, running previous installer"
-  Run-Installer -InstallerPath ([string]$options.previousInstaller) | Out-Null
-  Launch-App -AppExecutable ([string]$options.appExecutable)
-}
-Write-UpdateLog "install failed"
-exit 1
-`;
 
 function resolveLocalAppData() {
   try {
@@ -139,44 +63,14 @@ app.on("before-quit", (event) => {
   if (!pendingInstaller || installingUpdate || !app.isPackaged) return;
   event.preventDefault();
   installingUpdate = true;
-  updateStatus = { state: "installing", message: "앱 종료 후 업데이트를 설치합니다." };
+  updateStatus = { state: "installing", message: "업데이트를 설치하고 있습니다. 잠시 후 자동으로 다시 시작됩니다." };
   broadcastUpdateStatus();
-  setTimeout(async () => {
-    const healthFile = join(appDataRoot, "health", `${pendingVersion || "next"}.healthy`);
-    await mkdir(join(appDataRoot, "health"), { recursive: true });
-    await rm(healthFile, { force: true });
-    const previousInstaller = join(
-      appDataRoot,
-      "updates",
-      app.getVersion(),
-      `BusinessTripProof-${app.getVersion()}-Setup.exe`
-    );
-    const helperOptions = join(appDataRoot, "update-helper-options.json");
-    const helperScript = join(appDataRoot, "update-helper.ps1");
-    await writeFile(helperOptions, JSON.stringify({
-      parentPid: process.pid,
-      installer: pendingInstaller,
-      previousInstaller: existsSync(previousInstaller) ? previousInstaller : "",
-      appExecutable: process.execPath,
-      healthFile,
-      logFile: join(appDataRoot, "update-helper.log")
-    }, null, 2));
-    await writeFile(helperScript, UPDATE_HELPER_SCRIPT, "utf8");
-    const child = spawn("powershell.exe", [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      helperScript,
-      helperOptions
-    ], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true
-    });
-    child.unref();
-    app.exit(0);
-  }, 250);
+  const installer = pendingInstaller;
+  // 사용자가 설치 파일을 직접 더블클릭하는 것과 동일하게 실행합니다.
+  // oneClick 설치본이 실행 중인 앱을 스스로 닫고 설치한 뒤 자동으로 다시 시작합니다.
+  shell.openPath(installer).catch(() => {}).finally(() => {
+    setTimeout(() => app.exit(0), 1000);
+  });
 });
 
 app.on("will-quit", () => {
