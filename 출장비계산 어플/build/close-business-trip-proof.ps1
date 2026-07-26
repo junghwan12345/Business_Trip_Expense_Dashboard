@@ -1,4 +1,4 @@
-# 설치 전 실행 중인 출장비 앱 프로세스를 정리합니다.
+# 설치 중 실행 중인 실제 출장비 앱 프로세스만 종료합니다.
 $ErrorActionPreference = "SilentlyContinue"
 
 $localAppData = [Environment]::GetFolderPath("LocalApplicationData")
@@ -7,13 +7,7 @@ $installRoots = @(
   (Join-Path $localAppData "Programs\출장비 증빙 정리")
 )
 $dataRoot = Join-Path $localAppData "BusinessTripProof"
-$matchTexts = @(
-  "business-trip-proof",
-  "BusinessTripProof",
-  "출장비 증빙 정리"
-) + $installRoots
-$safeInstallerPattern = "BusinessTripProof-*-Setup.exe"
-$deadline = (Get-Date).AddSeconds(45)
+$deadline = (Get-Date).AddSeconds(20)
 $logPath = Join-Path $dataRoot "update-cleanup.log"
 
 New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
@@ -21,33 +15,15 @@ New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
 
 do {
   $matched = @()
-  $processes = Get-CimInstance Win32_Process
-  foreach ($process in $processes) {
+  foreach ($process in @(Get-CimInstance Win32_Process)) {
     $path = [string]$process.ExecutablePath
-    $commandLine = [string]$process.CommandLine
-    $name = [string]$process.Name
+    if (-not $path) { continue }
 
-    if ($name -like $safeInstallerPattern -or $path -like "*\$safeInstallerPattern") {
-      continue
-    }
-
-    $hit = $false
-    foreach ($text in $matchTexts) {
-      if (-not $text) {
-        continue
-      }
-      if (
-        $path.IndexOf($text, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-        $commandLine.IndexOf($text, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-        $name.IndexOf($text, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-      ) {
-        $hit = $true
+    foreach ($installRoot in $installRoots) {
+      if ($path.StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $matched += $process
         break
       }
-    }
-
-    if ($hit) {
-      $matched += $process
     }
   }
 
@@ -56,11 +32,9 @@ do {
     Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
   }
 
-  if ($matched.Count -eq 0) {
-    break
-  }
-  Start-Sleep -Milliseconds 900
+  if ($matched.Count -eq 0) { break }
+  Start-Sleep -Milliseconds 700
 } while ((Get-Date) -lt $deadline)
 
 "[$(Get-Date -Format o)] cleanup end" | Add-Content -Path $logPath -Encoding UTF8
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 900
