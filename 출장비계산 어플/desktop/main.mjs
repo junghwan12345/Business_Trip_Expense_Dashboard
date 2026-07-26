@@ -232,12 +232,11 @@ async function checkForUpdates() {
   try {
     const settings = await readOptionalJson(join(appDataRoot, "personal-settings.json"));
     const updateRoot = String(settings.updateRoot || "").trim();
-    let updateSource = updateRoot
-      ? await readFolderUpdateSource(updateRoot).catch(() => readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL))
-      : await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL);
-    if (updateRoot && updateSource.waiting) {
-      updateSource = await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL);
-    }
+    let updateSource = await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL)
+      .catch((githubError) => {
+        if (!updateRoot) throw githubError;
+        return readFolderUpdateSource(updateRoot);
+      });
     if (updateSource.waiting) return setUpdateStatus(updateSource.state, updateSource.message);
 
     const { manifest, installerBuffer } = updateSource;

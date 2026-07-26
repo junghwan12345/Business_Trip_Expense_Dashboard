@@ -1,7 +1,7 @@
 {
   "name": "business-trip-proof",
   "productName": "출장비 증빙 정리",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "private": true,
   "type": "module",
   "main": "desktop/main.mjs",
