@@ -1,5 +1,7 @@
 !macro customInit
-  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "$$ErrorActionPreference = ''SilentlyContinue''; $$root = Join-Path $$env:LOCALAPPDATA ''Programs\business-trip-proof''; Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$root, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 1500"'
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\close-business-trip-proof.ps1 "${BUILD_RESOURCES_DIR}\close-business-trip-proof.ps1"
+  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\close-business-trip-proof.ps1"'
 !macroend
 
 !macro customInstall
