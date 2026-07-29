@@ -141,6 +141,14 @@ function registerDesktopIpc() {
     packaged: app.isPackaged,
     dataRoot: appDataRoot
   }));
+  ipcMain.handle("desktop:focus-window", () => {
+    // 캡처가 끝나 Chrome이 닫힌 뒤 앱 창을 앞으로 가져옵니다.
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return true;
+  });
   ipcMain.handle("desktop:update-status", () => updateStatus);
   ipcMain.handle("desktop:check-updates", checkForUpdates);
   ipcMain.handle("desktop:install-update", () => {

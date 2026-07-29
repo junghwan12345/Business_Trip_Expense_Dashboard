@@ -131,6 +131,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/travel-proof/close-automation-browser" && request.method === "POST") {
+    await handleCloseAutomationBrowser(response);
+    return;
+  }
+
   if (url.pathname === "/api/travel-proof/storage-settings" && request.method === "POST") {
     await handleStorageSettingsUpdate(request, response);
     return;
@@ -370,6 +375,19 @@ async function handlePrerequisites(response) {
       chromeProfileRoot: process.env.TRAVEL_PROOF_CHROME_PROFILE || join(personalDataRoot, "chrome-profile")
     }
   });
+}
+
+// 캡처가 끝난 뒤 자동화용 Chrome 창을 닫습니다.
+async function handleCloseAutomationBrowser(response) {
+  try {
+    const automation = await loadAutomationModule();
+    const result = typeof automation.closeAutomationBrowser === "function"
+      ? await automation.closeAutomationBrowser()
+      : { closed: false, reason: "unsupported" };
+    sendJson(response, { ok: true, result });
+  } catch (error) {
+    sendJson(response, { ok: false, message: error.message }, 500);
+  }
 }
 
 async function handleUpdateRefresh(response) {

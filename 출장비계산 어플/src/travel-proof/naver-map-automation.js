@@ -465,6 +465,36 @@ async function captureHipassReceiptResult(receiptClient, dateKey, bodyText) {
   };
 }
 
+// 캡처가 끝나면 자동화용 Chrome 창을 함께 닫습니다.
+export async function closeAutomationBrowser() {
+  reusableTabIds.clear();
+  oilCaptureCache.clear();
+  const endpoint = `http://127.0.0.1:${DEBUG_PORT}`;
+  const version = await fetch(`${endpoint}/json/version`)
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
+  if (!version?.webSocketDebuggerUrl) {
+    return { closed: false, reason: "not-running" };
+  }
+  try {
+    const browserClient = await CdpClient.connect(version.webSocketDebuggerUrl, "browser");
+    try {
+      // 브라우저가 닫히면 응답이 오지 않을 수 있으므로 짧게 기다린 뒤 넘어갑니다.
+      await Promise.race([
+        browserClient.call("Browser.close", {}).catch(() => {}),
+        delay(1500)
+      ]);
+    } finally {
+      try { browserClient.close(); } catch {}
+    }
+    // 종료에는 잠깐 시간이 걸리므로 실제로 내려갔는지 잠시 확인합니다.
+    const closed = await waitUntil(async () => !(await canReachChrome(endpoint)), 5000);
+    return { closed: Boolean(closed) };
+  } catch (error) {
+    return { closed: false, reason: error.message };
+  }
+}
+
 export async function resetAutomationState() {
   const targetIds = [...new Set(reusableTabIds.values())];
   reusableTabIds.clear();

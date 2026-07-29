@@ -6795,6 +6795,16 @@ body[data-active-page="distance"] .app-main {
   display: none !important;
 }
 
+/* 좌측 상단 로고: 클릭하면 새로고침 */
+.brand {
+  cursor: pointer;
+  user-select: none;
+}
+
+.brand:hover {
+  opacity: 0.85;
+}
+
 /* 설정 화면의 사용 역할 전환 */
 .settings-role-switch {
   display: flex;

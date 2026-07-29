@@ -468,6 +468,14 @@ document.addEventListener("click", handleExcelWorkflowCardClick);
 document.addEventListener("keydown", handleCollapsiblePanelKeydown);
 document.addEventListener("click", handlePasteOutputCopyClick);
 document.addEventListener("click", handleSortHeaderClick);
+// F5 또는 좌측 상단 로고 클릭으로 새로고침
+document.addEventListener("keydown", (event) => {
+  if (event.key === "F5") {
+    event.preventDefault();
+    reloadApp();
+  }
+});
+document.querySelector(".brand")?.addEventListener("click", reloadApp);
 document.addEventListener("keydown", handleSortHeaderKeydown);
 document.addEventListener("keydown", handleImageModalKeydown);
 elements.saveStorageSettingsButton?.addEventListener("click", saveStorageSettings);
@@ -1163,6 +1171,24 @@ async function refreshAutomaticProofPreviews() {
   ]);
 }
 
+// 캡처가 끝나면 자동화용 Chrome 창을 닫고 앱 창을 앞으로 가져옵니다.
+async function finishAutomationSession() {
+  try {
+    await fetch("/api/travel-proof/close-automation-browser", { method: "POST" });
+  } catch {}
+  try {
+    await window.desktopBridge?.focusWindow?.();
+  } catch {}
+}
+
+// 캡처 중 창을 닫는 등으로 화면이 멈췄을 때 앱을 다시 불러옵니다.
+function reloadApp() {
+  if (state.running && !window.confirm("캡처가 진행 중입니다. 새로고침할까요?")) {
+    return;
+  }
+  window.location.reload();
+}
+
 function isManagerOnlyPageAllowed(pageName, role) {
   return !MANAGER_ONLY_PAGES.has(pageName) || (role || "manager") === "manager";
 }
@@ -1296,6 +1322,7 @@ async function runCapture() {
   state.running = false;
   setBusy(false);
   updateRetryButton();
+  await finishAutomationSession();
   await renderCaptureProofPreview();
   showCaptureSummaryAlert();
 }
@@ -1329,6 +1356,7 @@ async function retryFailedCapture() {
   state.running = false;
   setBusy(false);
   updateRetryButton();
+  await finishAutomationSession();
   await renderCaptureProofPreview();
   showCaptureSummaryAlert();
 }
@@ -1660,6 +1688,7 @@ async function runCoupangCapture() {
   } finally {
     state.running = false;
     setBusy(false);
+    await finishAutomationSession();
   }
 }
 
