@@ -6,7 +6,7 @@
     <title>출장비 증빙 도구</title>
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/regular/style.css" />
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/fill/style.css" />
-    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260703-ledger-ui2" />
+    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260729-role-switch" />
     <link rel="stylesheet" href="./src/travel-proof/initial-setup.css?v=20260704-compact" />
   </head>
   <body data-active-page="distance">
@@ -666,6 +666,16 @@
                 <i class="ph ph-caret-right"></i>
               </button>
             </div>
+            <div class="settings-role-switch">
+              <div class="settings-role-copy">
+                <strong>사용 역할</strong>
+                <small>선임 / 팀장만 조활비·소모품비 메뉴를 사용합니다.</small>
+              </div>
+              <div class="settings-role-options" role="group" aria-label="사용 역할 선택">
+                <button class="settings-role-option" type="button" data-settings-role="manager" aria-pressed="false">선임 / 팀장</button>
+                <button class="settings-role-option" type="button" data-settings-role="instructor" aria-pressed="false">강사</button>
+              </div>
+            </div>
             <div class="settings-hidden-fields" hidden>
               <input id="settingsStartInput" type="text" />
               <input id="settingsDestinationInput" type="text" />
@@ -697,6 +707,6 @@
       </main>
     </div>
 
-    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260704-compact"></script>
+    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260729-role-switch"></script>
   </body>
 </html>

@@ -131,6 +131,8 @@ const CORPORATE_CARD_PREVIEW_LIMIT = 6;
 // 헤더 정렬·필터 칩 관련 모듈 상수 (초기 렌더 전에 초기화되도록 최상단에 선언)
 const EXCEL_PREVIEW_SORT_PREFIX = "excelPreview:";
 const LEDGER_TYPE_SORT_RANK = { welfare: 0, supply: 1, other: 2, review: 3 };
+// 조활비·소모품비는 선임/팀장(manager)만 사용합니다. 강사(instructor)에게는 메뉴를 숨깁니다.
+const MANAGER_ONLY_PAGES = new Set(["coupang"]);
 const LEDGER_FILTER_CHIPS = [
   ["all", "전체"],
   ["welfare", "조활비"],
@@ -374,6 +376,7 @@ if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = a
 elements.coupangPeopleInput.value = appSettings.welfarePeople || elements.coupangPeopleInput.value;
 elements.settingsPeopleInput.value = elements.coupangPeopleInput.value;
 renderSettingsRoleButtons(appSettings.userRole || "manager");
+applyRoleMenuVisibility(appSettings.userRole || "manager");
 refreshSettingsPreview();
 
 elements.previewButton.addEventListener("click", preview);
@@ -381,7 +384,16 @@ elements.chooseFolderButton.addEventListener("click", chooseFolder);
 elements.settingChooseFolderButton?.addEventListener("click", chooseFolder);
 elements.settingsRoleButtons?.forEach((button) => {
   button.addEventListener("click", () => {
-    renderSettingsRoleButtons(button.dataset.settingsRole);
+    // 설정 화면에는 별도 저장 버튼이 없으므로 선택 즉시 저장하고 메뉴에 반영합니다.
+    const nextRole = button.dataset.settingsRole;
+    writeAppSettings({ ...readAppSettings(), userRole: nextRole });
+    renderSettingsRoleButtons(nextRole);
+    applyRoleMenuVisibility(nextRole);
+    if (elements.settingsStatus) {
+      elements.settingsStatus.textContent = nextRole === "manager"
+        ? "선임 / 팀장으로 설정했습니다. 조활비·소모품비 메뉴를 사용할 수 있습니다."
+        : "강사로 설정했습니다. 조활비·소모품비 메뉴는 표시되지 않습니다.";
+    }
   });
 });
 elements.settingsPeopleStepButtons?.forEach((button) => {
@@ -730,6 +742,7 @@ function applyInitialSetupResult(setup) {
   elements.settingsDestinationInput.value = elements.destinationInput.value;
   if (elements.settingsAuthorNameInput) elements.settingsAuthorNameInput.value = applied.authorName || "";
   renderSettingsRoleButtons(applied.userRole || "manager");
+  applyRoleMenuVisibility(applied.userRole || "manager");
   refreshSettingsPreview();
   refreshSettingsStoragePreview(setup.storagePath || "");
   if (applied.welfarePeople) {
@@ -1150,7 +1163,27 @@ async function refreshAutomaticProofPreviews() {
   ]);
 }
 
+function isManagerOnlyPageAllowed(pageName, role) {
+  return !MANAGER_ONLY_PAGES.has(pageName) || (role || "manager") === "manager";
+}
+
+function applyRoleMenuVisibility(role = readAppSettings().userRole || "manager") {
+  for (const navItem of elements.navItems) {
+    const target = navItem.dataset.pageTarget;
+    if (!MANAGER_ONLY_PAGES.has(target)) continue;
+    navItem.hidden = !isManagerOnlyPageAllowed(target, role);
+  }
+  // 숨긴 메뉴를 보고 있었다면 기본 화면으로 이동시킵니다.
+  const activePage = document.body.dataset.activePage;
+  if (activePage && !isManagerOnlyPageAllowed(activePage, role)) {
+    activatePage("distance");
+  }
+}
+
 function activatePage(pageName) {
+  if (!isManagerOnlyPageAllowed(pageName, readAppSettings().userRole)) {
+    pageName = "distance";
+  }
   for (const navItem of elements.navItems) {
     navItem.classList.toggle("active", navItem.dataset.pageTarget === pageName);
   }
@@ -3073,6 +3106,7 @@ function applySettings() {
     userRole
   });
   renderSettingsRoleButtons(userRole);
+  applyRoleMenuVisibility(userRole);
   refreshSettingsPreview();
   renderCoupangLimitSummary();
   renderLedger();
@@ -4170,6 +4204,7 @@ function applyHydratedAppState() {
     elements.settingsPeopleInput.value = settings.welfarePeople;
   }
   renderSettingsRoleButtons(settings.userRole || "manager");
+  applyRoleMenuVisibility(settings.userRole || "manager");
   state.generalTravelEntries = readLocalEntries(GENERAL_TRAVEL_STORAGE_KEY);
   state.fuelRows = readLocalEntries(FUEL_ROWS_STORAGE_KEY);
   state.tollRows = readLocalEntries(TOLL_ROWS_STORAGE_KEY);
