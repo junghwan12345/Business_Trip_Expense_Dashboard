@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateUpdateManifest } from "../src/shared/update-channel.js";
+import { compareVersions, sha256Hex, validateUpdateManifest } from "../src/shared/update-channel.js";
 
 const APP_FOLDER = "BusinessTripProof";
 const DESKTOP_SERVER_PORT = Number(process.env.TRAVEL_PROOF_DESKTOP_PORT || 41731);
@@ -53,6 +53,10 @@ app.whenReady().then(async () => {
   registerDesktopIpc();
   await checkForUpdates();
   updateTimer = setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
+}).catch((error) => {
+  // 시작에 실패하면 창도 뜨지 않고 조용히 멈추므로, 원인을 반드시 표시합니다.
+  dialog.showErrorBox("실행 실패", `앱을 시작하지 못했습니다.\n\n${error?.message || error}`);
+  app.exit(1);
 });
 
 app.on("window-all-closed", () => {
@@ -68,9 +72,22 @@ app.on("before-quit", (event) => {
   const installer = pendingInstaller;
   // 사용자가 설치 파일을 직접 더블클릭하는 것과 동일하게 실행합니다.
   // oneClick 설치본이 실행 중인 앱을 스스로 닫고 설치한 뒤 자동으로 다시 시작합니다.
-  shell.openPath(installer).catch(() => {}).finally(() => {
-    setTimeout(() => app.exit(0), 1000);
-  });
+  shell.openPath(installer)
+    .then((failureMessage) => {
+      if (failureMessage) throw new Error(failureMessage);
+      setTimeout(() => app.exit(0), 1000);
+    })
+    .catch((error) => {
+      // 설치 실행이 실패하면 조용히 종료하지 않고 원인과 설치파일 위치를 알려 줍니다.
+      installingUpdate = false;
+      setUpdateStatus("error", `업데이트 설치를 시작하지 못했습니다: ${error.message}`);
+      dialog.showErrorBox(
+        "업데이트 설치 실패",
+        `자동 설치를 시작하지 못했습니다.\n\n${error.message}\n\n탐색기에서 아래 설치 파일을 직접 실행해 주세요.\n${installer}`
+      );
+      shell.showItemInFolder(installer);
+      app.exit(1);
+    });
 });
 
 app.on("will-quit", () => {
@@ -96,11 +113,8 @@ function createWindow(port) {
     }
   });
   mainWindow.loadURL(`http://127.0.0.1:${port}/travel-proof.html`);
-  mainWindow.once("ready-to-show", async () => {
+  mainWindow.once("ready-to-show", () => {
     mainWindow.show();
-    const healthDirectory = join(appDataRoot, "health");
-    await mkdir(healthDirectory, { recursive: true });
-    await writeFile(join(healthDirectory, `${app.getVersion()}.healthy`), new Date().toISOString(), "utf8");
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -164,14 +178,29 @@ async function checkForUpdates() {
   try {
     const settings = await readOptionalJson(join(appDataRoot, "personal-settings.json"));
     const updateRoot = String(settings.updateRoot || "").trim();
-    let updateSource = await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL)
+    const updateSource = await readGithubUpdateSource(DEFAULT_UPDATE_MANIFEST_URL)
       .catch((githubError) => {
         if (!updateRoot) throw githubError;
         return readFolderUpdateSource(updateRoot);
       });
     if (updateSource.waiting) return setUpdateStatus(updateSource.state, updateSource.message);
 
-    const { manifest, installerBuffer } = updateSource;
+    const { manifest, loadInstaller } = updateSource;
+    // 설치파일은 100MB가 넘으므로 버전이 실제로 더 최신일 때만 내려받습니다.
+    // (예전에는 확인할 때마다 전체를 내려받아 6시간마다 불필요한 트래픽이 발생했습니다.)
+    if (compareVersions(String(manifest.version || ""), app.getVersion()) <= 0) {
+      return setUpdateStatus("current", "최신 버전입니다.");
+    }
+
+    // 서명을 확인하기 전이므로, 경로를 만들기 전에 파일명 형식부터 검사합니다.
+    const installerFile = String(manifest.installerFile || "");
+    if (!/^[^\\/]+\.exe$/i.test(installerFile)) {
+      return setUpdateStatus("rejected", "업데이트 검증 실패: invalid-installer");
+    }
+    const updateDirectory = join(appDataRoot, "updates", manifest.version);
+    const installerPath = join(updateDirectory, installerFile);
+    const installerBuffer = await loadCachedInstaller(installerPath, manifest) || await loadInstaller();
+
     const publicKey = await readUpdatePublicKey();
     const validation = validateUpdateManifest(manifest, {
       currentVersion: app.getVersion(),
@@ -181,20 +210,38 @@ async function checkForUpdates() {
     if (validation.reason === "not-newer") return setUpdateStatus("current", "최신 버전입니다.");
     if (!validation.ok) return setUpdateStatus("rejected", `업데이트 검증 실패: ${validation.reason}`);
 
-    const updateDirectory = join(appDataRoot, "updates", manifest.version);
     await mkdir(updateDirectory, { recursive: true });
-    pendingInstaller = join(updateDirectory, manifest.installerFile);
+    pendingInstaller = installerPath;
     pendingVersion = manifest.version;
     await writeFile(pendingInstaller, installerBuffer);
     await writeFile(join(appDataRoot, "update-state.json"), JSON.stringify({
       version: manifest.version,
       installer: pendingInstaller,
+      previousVersion: app.getVersion(),
+      previousInstaller: previousInstallerPath(),
       verifiedAt: new Date().toISOString()
     }, null, 2));
     return setUpdateStatus("ready", `${manifest.version} 다운로드 완료. 앱을 완전히 종료하면 업데이트가 설치됩니다.`, manifest);
   } catch (error) {
     return setUpdateStatus("error", `업데이트 확인 실패: ${error.message}`);
   }
+}
+
+// 같은 버전 설치파일을 이미 받아 두었고 해시가 일치하면 다시 내려받지 않습니다.
+async function loadCachedInstaller(installerPath, manifest) {
+  if (!existsSync(installerPath)) return null;
+  try {
+    const cached = await readFile(installerPath);
+    return sha256Hex(cached) === String(manifest.sha256 || "").toLowerCase() ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+// 설치 시 NSIS가 각 버전의 설치파일을 보관하므로, 되돌릴 때 쓸 현재 버전 설치파일 경로를 남겨 둡니다.
+function previousInstallerPath() {
+  const path = join(appDataRoot, "updates", app.getVersion(), `BusinessTripProof-${app.getVersion()}-Setup.exe`);
+  return existsSync(path) ? path : "";
 }
 
 async function readFolderUpdateSource(updateRoot) {
@@ -209,7 +256,7 @@ async function readFolderUpdateSource(updateRoot) {
   }
   return {
     manifest,
-    installerBuffer: await readFile(installerSource)
+    loadInstaller: () => readFile(installerSource)
   };
 }
 
@@ -218,7 +265,7 @@ async function readGithubUpdateSource(manifestUrl) {
   const installerUrl = manifest.installerUrl || new URL(manifest.installerFile || "", manifestUrl).toString();
   return {
     manifest,
-    installerBuffer: await fetchBuffer(installerUrl)
+    loadInstaller: () => fetchBuffer(installerUrl)
   };
 }
 

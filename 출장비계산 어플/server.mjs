@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { access, copyFile, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, normalize, resolve } from "node:path";
+import { basename, dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
@@ -307,12 +307,21 @@ function defaultStorageFolderPath() {
   return join(homedir(), "Desktop", "자동출장증빙");
 }
 
+// PowerShell은 app.asar 안의 파일을 직접 실행할 수 없습니다.
+// 설치본에서는 asarUnpack으로 풀린 실제 경로를 사용합니다.
+function resolveScriptPath(fileName) {
+  const scriptPath = join(root, "src", "travel-proof", fileName);
+  return scriptPath.includes(`app.asar${sep}`)
+    ? scriptPath.replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)
+    : scriptPath;
+}
+
 async function handleSelectDirectory(request, response) {
   try {
     const body = await readJsonBody(request);
     const title = String(body.title || "폴더 선택");
     const initialPath = String(body.initialPath || "").trim() || dirname(defaultStorageFolderPath());
-    const scriptPath = join(root, "src", "travel-proof", "select-folder.ps1");
+    const scriptPath = resolveScriptPath("select-folder.ps1");
     const { stdout } = await runProcess("powershell.exe", [
       "-NoProfile",
       "-STA",
@@ -1813,7 +1822,7 @@ export function startServer({ port: requestedPort = port, host: requestedHost = 
 function warmUpFolderPicker() {
   if (process.platform !== "win32") return;
   try {
-    const scriptPath = join(root, "src", "travel-proof", "select-folder.ps1");
+    const scriptPath = resolveScriptPath("select-folder.ps1");
     const child = spawn("powershell.exe", [
       "-NoProfile",
       "-ExecutionPolicy",
