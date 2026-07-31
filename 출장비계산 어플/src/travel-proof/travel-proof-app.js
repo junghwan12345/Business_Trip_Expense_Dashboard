@@ -4047,6 +4047,20 @@ async function writeDirectExcelWorkbook() {
   }
   renderExcelPasteStatus([`${excelMonthLabel(monthKey)} 지출결의서를 만들고 있습니다. 잠시만 기다려 주세요.`], "success");
   try {
+    if (state.directoryHandle) {
+      let proofImages = [];
+      try {
+        const monthDirectory = await resolveBrowserProofMonthDirectory(state.directoryHandle, monthKey);
+        proofImages = await collectBrowserProofImages(monthDirectory, monthKey);
+      } catch {
+        proofImages = [];
+      }
+      payload.proofImageMode = "uploaded";
+      payload.proofImages = proofImages;
+    } else {
+      payload.proofImageMode = "storage";
+    }
+
     const response = await fetch("/api/travel-proof/excel-write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4057,10 +4071,18 @@ async function writeDirectExcelWorkbook() {
       throw new Error(data.message);
     }
     const result = data.result || {};
-    renderExcelPasteStatus([
+    const messages = [
       `지출결의서 생성 완료: 일반출장 ${result.generalTravelCount || 0}행 · 현장지원 ${result.fieldVisitCount || 0}행 · 조활비/소모품비/기타 ${result.corporateCardCount || 0}행`,
+      `증빙 시트: ${result.proofBlockCount || 0}개 묶음 · 이미지 ${result.proofImageCount || 0}장`,
       `저장 위치: ${result.outputPath || "바탕화면"}`
-    ], "success");
+    ];
+    if (result.proofReviewCount) {
+      messages.push(`증빙 ${result.proofReviewCount}건은 제목 또는 날짜 확인이 필요합니다.`);
+    }
+    if (result.proofImageFailureCount) {
+      messages.push(`증빙 이미지 ${result.proofImageFailureCount}장은 Excel에 넣지 못했습니다.`);
+    }
+    renderExcelPasteStatus(messages, "success");
   } catch (error) {
     renderExcelPasteStatus([`지출결의서 만들기 실패: ${error.message}`], "error");
   } finally {

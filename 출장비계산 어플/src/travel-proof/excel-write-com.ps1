@@ -6,6 +6,17 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+if (-not ("ExcelWindowProcess" -as [type])) {
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class ExcelWindowProcess {
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+}
+
 function Decode-Utf8Base64($value) {
   return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($value))
 }
@@ -17,6 +28,11 @@ $FIELD_ITEM_TOLL_PREFIX = Decode-Utf8Base64 "7Ya17ZaJ66OM"
 $SETTLEMENT_SUFFIX = Decode-Utf8Base64 "7JuUIOygleyCsOq4iOyVoQ=="  # "월 정산금액"
 $YEAR_SUFFIX = Decode-Utf8Base64 "64WEIA=="                          # "년 "
 $MONTH_SUFFIX = Decode-Utf8Base64 "7JuU"                             # "월"
+$PROOF_SHEET_NAME = Decode-Utf8Base64 "7Kad67mZ"
+$PROOF_FONT_NAME = Decode-Utf8Base64 "66eR7J2AIOqzoOuUlQ=="
+$PROOF_UNMATCHED_PREFIX = Decode-Utf8Base64 "64Kg7Kec66W8IO2ZleyduO2VmOyngCDrqrvtlbQg67Cw7LmY65CY7KeAIOyViuydgCDspp3ruZkg"
+$PROOF_UNMATCHED_SUFFIX = Decode-Utf8Base64 "6rCc6rCAIOyeiOyKteuLiOuLpC4="
+$PROOF_EMPTY_MESSAGE = Decode-Utf8Base64 "7ISg7YOd7ZWcIOyblOydmCDspp3ruZnsnpDro4zqsIAg7JeG7Iq164uI64ukLg=="
 
 function ConvertTo-PlainText($value) {
   if ($null -eq $value) { return "" }
@@ -68,6 +84,16 @@ function Get-ExcelApplication {
       throw "Microsoft Excel 데스크톱 앱이 설치되어 있지 않거나 Excel COM 등록이 깨져 있습니다. Microsoft 365/Office의 Excel을 설치하거나 Office 빠른 복구를 실행한 뒤 다시 시도해 주세요. Excel 웹, Excel Viewer, WPS만으로는 지출결의서 직접 작성 기능을 사용할 수 없습니다."
     }
     throw
+  }
+}
+
+function Get-ExcelProcessId($excelApplication) {
+  try {
+    [uint32]$processId = 0
+    [ExcelWindowProcess]::GetWindowThreadProcessId([IntPtr]$excelApplication.Hwnd, [ref]$processId) | Out-Null
+    return [int]$processId
+  } catch {
+    return 0
   }
 }
 
@@ -252,8 +278,181 @@ function Write-SettlementPeriod($workbook, $monthKey) {
   Set-HeaderCellValue (Get-WorksheetByIndex $workbook 3) 5 5 $periodValue
 }
 
+function Get-OrCreate-ProofWorksheet($workbook) {
+  $sheet = $null
+  for ($index = 1; $index -le $workbook.Worksheets.Count; $index++) {
+    $candidate = $workbook.Worksheets.Item($index)
+    if ((ConvertTo-PlainText $candidate.Name) -eq $script:PROOF_SHEET_NAME) {
+      $sheet = $candidate
+      break
+    }
+  }
+  if ($null -eq $sheet) {
+    $sheet = $workbook.Worksheets.Add([System.Type]::Missing, $workbook.Worksheets.Item($workbook.Worksheets.Count))
+    $sheet.Name = $script:PROOF_SHEET_NAME
+  } else {
+    for ($index = $sheet.Shapes.Count; $index -ge 1; $index--) {
+      try { $sheet.Shapes.Item($index).Delete() } catch {}
+    }
+    $sheet.Cells.Clear() | Out-Null
+  }
+  Write-Output -NoEnumerate $sheet
+}
+
+function Set-ProofWorksheetLayout($sheet) {
+  $sheet.Cells.Font.Name = $script:PROOF_FONT_NAME
+  $sheet.Cells.Font.Size = 10
+  for ($column = 2; $column -le 24; $column++) {
+    $sheet.Columns.Item($column).ColumnWidth = if ($column -eq 9 -or $column -eq 17) { 2.5 } else { 8.5 }
+  }
+  try {
+    $sheet.PageSetup.Orientation = 2
+    $sheet.PageSetup.Zoom = $false
+    $sheet.PageSetup.FitToPagesWide = 1
+    $sheet.PageSetup.FitToPagesTall = 0
+    $sheet.PageSetup.LeftMargin = $sheet.Application.InchesToPoints(0.25)
+    $sheet.PageSetup.RightMargin = $sheet.Application.InchesToPoints(0.25)
+    $sheet.PageSetup.TopMargin = $sheet.Application.InchesToPoints(0.35)
+    $sheet.PageSetup.BottomMargin = $sheet.Application.InchesToPoints(0.35)
+  } catch {}
+}
+
+function Add-FittedProofPicture($sheet, $imagePath, $boxLeft, $boxTop, $boxWidth, $boxHeight) {
+  if ([string]::IsNullOrWhiteSpace($imagePath) -or -not (Test-Path -LiteralPath $imagePath)) {
+    return $false
+  }
+  try {
+    $shape = Invoke-ExcelCom {
+      $sheet.Shapes.AddPicture($imagePath, 0, -1, $boxLeft, $boxTop, -1, -1)
+    } "Proof image insert"
+    $shape.LockAspectRatio = -1
+    $shapeRatio = if ($shape.Height -gt 0) { $shape.Width / $shape.Height } else { 1 }
+    $boxRatio = if ($boxHeight -gt 0) { $boxWidth / $boxHeight } else { 1 }
+    if ($shapeRatio -gt $boxRatio) {
+      $shape.Width = $boxWidth
+    } else {
+      $shape.Height = $boxHeight
+    }
+    $shape.Left = $boxLeft + (($boxWidth - $shape.Width) / 2)
+    $shape.Top = $boxTop + (($boxHeight - $shape.Height) / 2)
+    $shape.Placement = 1
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Add-ProofBlockImages($sheet, $block, $contentRange) {
+  $images = @($block.images)
+  $count = $images.Count
+  if ($count -eq 0) {
+    return [pscustomobject]@{ inserted = 0; failed = 0 }
+  }
+
+  $columns = if ($count -eq 1) { 1 } elseif ($count -le 4) { 2 } else { 3 }
+  $rows = [Math]::Ceiling($count / $columns)
+  $gap = 7.0
+  $left = [double]$contentRange.Left + 5
+  $top = [double]$contentRange.Top + 5
+  $width = [double]$contentRange.Width - 10
+  $height = [double]$contentRange.Height - 10
+  $boxWidth = ($width - ($gap * ($columns - 1))) / $columns
+  $boxHeight = ($height - ($gap * ($rows - 1))) / $rows
+  $inserted = 0
+  $failed = 0
+
+  for ($index = 0; $index -lt $count; $index++) {
+    $column = $index % $columns
+    $row = [Math]::Floor($index / $columns)
+    $boxLeft = $left + ($column * ($boxWidth + $gap))
+    $boxTop = $top + ($row * ($boxHeight + $gap))
+    $shapeCountBefore = $sheet.Shapes.Count
+    Add-FittedProofPicture $sheet (ConvertTo-PlainText $images[$index].path) $boxLeft $boxTop $boxWidth $boxHeight | Out-Null
+    if ($sheet.Shapes.Count -gt $shapeCountBefore) {
+      $inserted++
+    } else {
+      $failed++
+    }
+  }
+
+  return [pscustomobject]@{ inserted = $inserted; failed = $failed }
+}
+
+function Write-ProofSheet($workbook, $blocks, $unmatchedProofCount) {
+  $sheet = Get-OrCreate-ProofWorksheet $workbook
+  Set-ProofWorksheetLayout $sheet
+  $proofBlocks = @($blocks)
+  $startRow = 2
+  $insertedImageCount = 0
+  $failedImageCount = 0
+  $reviewCount = [Math]::Max(0, [int]$unmatchedProofCount)
+
+  if ($unmatchedProofCount -gt 0) {
+    $noticeRange = $sheet.Range($sheet.Cells.Item(1, 2), $sheet.Cells.Item(1, 24))
+    $noticeRange.Merge()
+    Set-HeaderCellValue $sheet 1 2 "$script:PROOF_UNMATCHED_PREFIX$unmatchedProofCount$script:PROOF_UNMATCHED_SUFFIX"
+    $noticeRange.Font.Color = 255
+    $noticeRange.Font.Bold = $true
+    $noticeRange.HorizontalAlignment = -4131
+    $startRow = 3
+  }
+
+  if ($proofBlocks.Count -eq 0) {
+    $emptyRange = $sheet.Range($sheet.Cells.Item($startRow, 2), $sheet.Cells.Item($startRow + 2, 24))
+    $emptyRange.Merge()
+    Set-HeaderCellValue $sheet $startRow 2 $script:PROOF_EMPTY_MESSAGE
+    $emptyRange.HorizontalAlignment = -4108
+    $emptyRange.VerticalAlignment = -4108
+  }
+
+  for ($index = 0; $index -lt $proofBlocks.Count; $index++) {
+    $block = $proofBlocks[$index]
+    $gridColumn = $index % 3
+    $gridRow = [Math]::Floor($index / 3)
+    $columnStart = 2 + ($gridColumn * 8)
+    $columnEnd = $columnStart + 6
+    $rowStart = $startRow + ($gridRow * 31)
+    $titleRange = $sheet.Range($sheet.Cells.Item($rowStart, $columnStart), $sheet.Cells.Item($rowStart, $columnEnd))
+    $contentRange = $sheet.Range($sheet.Cells.Item($rowStart + 2, $columnStart), $sheet.Cells.Item($rowStart + 27, $columnEnd))
+
+    $titleRange.Merge()
+    Set-HeaderCellValue $sheet $rowStart $columnStart (ConvertTo-PlainText $block.title)
+    $titleRange.Font.Bold = $true
+    $titleRange.Font.Size = 11
+    $titleRange.Interior.Color = 16247773
+    $titleRange.HorizontalAlignment = -4131
+    $titleRange.VerticalAlignment = -4108
+    $sheet.Rows.Item($rowStart).RowHeight = 24
+    for ($row = $rowStart + 2; $row -le $rowStart + 27; $row++) {
+      $sheet.Rows.Item($row).RowHeight = 15
+    }
+    $contentRange.BorderAround(1, 2) | Out-Null
+
+    $imageResult = Add-ProofBlockImages $sheet $block $contentRange
+    $insertedImageCount += $imageResult.inserted
+    $failedImageCount += $imageResult.failed
+    if ([bool]$block.needsReview) {
+      $reviewCount++
+    }
+  }
+
+  try {
+    $sheet.Activate()
+    $sheet.Application.ActiveWindow.DisplayGridlines = $false
+  } catch {}
+
+  return [pscustomobject]@{
+    blockCount = $proofBlocks.Count
+    insertedImageCount = $insertedImageCount
+    failedImageCount = $failedImageCount
+    reviewCount = $reviewCount
+  }
+}
+
 $excel = $null
 $workbook = $null
+$excelProcessId = 0
+$ownsExcelProcess = $false
 
 try {
   $payload = Get-Content -LiteralPath $InputJson -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -263,6 +462,8 @@ try {
   }
 
   $excel = Get-ExcelApplication
+  $ownsExcelProcess = $excel.Workbooks.Count -eq 0
+  $excelProcessId = Get-ExcelProcessId $excel
   $excel.Visible = $true
   $excel.DisplayAlerts = $false
   try { $excel.ScreenUpdating = $false } catch {}
@@ -275,6 +476,7 @@ try {
   Write-FieldVisitRows (Get-WorksheetByIndex $workbook 3) 20 $payload.fieldVisitRows
   Write-CorporateRows (Get-WorksheetByIndex $workbook 4) 16 $payload.corporateCardRows
   Write-SettlementPeriod $workbook $payload.monthKey
+  $proofResult = Write-ProofSheet $workbook $payload.proofBlocks $payload.unmatchedProofCount
 
   $desktop = [Environment]::GetFolderPath("Desktop")
   $outputFileName = ConvertTo-PlainText $payload.outputFileName
@@ -302,6 +504,10 @@ try {
     generalTravelCount = @($payload.generalTravelRows).Count
     fieldVisitCount = @($payload.fieldVisitRows).Count
     corporateCardCount = @($payload.corporateCardRows).Count
+    proofBlockCount = $proofResult.blockCount
+    proofImageCount = $proofResult.insertedImageCount
+    proofImageFailureCount = $proofResult.failedImageCount
+    proofReviewCount = $proofResult.reviewCount
   } | ConvertTo-Json -Compress
 } catch {
   if ($null -ne $workbook) {
@@ -314,11 +520,28 @@ try {
   } | ConvertTo-Json -Compress
   exit 1
 } finally {
+  if ($null -ne $workbook) {
+    try { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($workbook) | Out-Null } catch {}
+    $workbook = $null
+  }
   if ($null -ne $excel) {
     try { $excel.Calculation = -4105 } catch {}
     try { $excel.EnableEvents = $true } catch {}
     try { $excel.ScreenUpdating = $true } catch {}
     try { $excel.DisplayAlerts = $true } catch {}
     try { $excel.Quit() } catch {}
+    try { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($excel) | Out-Null } catch {}
+    $excel = $null
+  }
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  if ($ownsExcelProcess -and $excelProcessId -gt 0) {
+    Start-Sleep -Milliseconds 250
+    $excelProcess = Get-Process -Id $excelProcessId -ErrorAction SilentlyContinue
+    if ($null -ne $excelProcess -and $excelProcess.ProcessName -eq "EXCEL") {
+      Stop-Process -Id $excelProcessId -Force -ErrorAction SilentlyContinue
+    }
   }
 }

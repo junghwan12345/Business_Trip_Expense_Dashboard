@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { COUPANG_PROOF_FOLDERS, receiptFileBaseName } from "./src/travel-proof/coupang-proof.js";
 import { normalizeCorporateCardEntry } from "./src/travel-proof/corporate-card.js";
 import { HIPASS_TOLL_FOLDER } from "./src/travel-proof/hipass-toll.js";
+import { buildExcelProofBlocks } from "./src/travel-proof/proof-excel.js";
 import { buildProofPptxBuffer } from "./src/travel-proof/proof-ppt-generator.js";
 import {
   EXTRA_PROOF_FOLDER_ALIASES,
@@ -738,21 +739,63 @@ async function materializeExcelTemplate(templatePath) {
 
 async function handleExcelWrite(request, response) {
   let tempTemplatePath = "";
+  let tempProofDirectory = "";
   try {
-    const body = await readJsonBody(request, { maxBytes: 1_000_000 });
+    const body = await readJsonBody(request, {
+      maxBytes: jsonBodyLimitForPath("/api/travel-proof/excel-write"),
+      tooLargeMessage: "Excel에 넣을 증빙 이미지 데이터가 너무 큽니다. 이미지 수를 줄이거나 사진 용량을 줄여 주세요."
+    });
     const resolvedTemplate = resolveExcelTemplatePath(body.sourcePath);
     if (!resolvedTemplate) {
       throw new Error("지출결의서 양식 파일을 찾지 못했습니다. 앱에 내장된 양식이 없거나 지정한 경로가 올바르지 않습니다.");
     }
     const sourcePath = await materializeExcelTemplate(resolvedTemplate);
     if (sourcePath !== resolvedTemplate) tempTemplatePath = sourcePath;
+    const generalTravelRows = normalizeExcelWriteRows(body.generalTravelRows);
+    const fieldVisitRows = normalizeExcelWriteRows(body.fieldVisitRows);
+    const corporateCardRows = normalizeExcelWriteRows(body.corporateCardRows);
+    const monthKey = String(body.monthKey || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+      throw new Error("출장비 엑셀을 만들 기준 월이 필요합니다.");
+    }
+    let proofImages = [];
+    let unmatchedProofImages = [];
+    let skippedProofImageCount = 0;
+
+    if (body.proofImageMode === "uploaded") {
+      proofImages = Array.isArray(body.proofImages) ? body.proofImages : [];
+    } else {
+      const outputRoot = await storageRootFor("ppt");
+      const proofCandidates = await readProofImageCandidatesFromMonthDirectory(join(outputRoot, monthKey), monthKey);
+      proofImages = proofCandidates.images;
+      unmatchedProofImages = proofCandidates.unmatchedImages;
+    }
+
+    const proofData = buildExcelProofBlocks({
+      monthKey,
+      images: proofImages,
+      generalTravelRows,
+      fieldVisitRows,
+      corporateCardRows
+    });
+    unmatchedProofImages.push(...proofData.unmatchedImages);
+    let proofBlocks = proofData.blocks;
+    if (body.proofImageMode === "uploaded" && proofBlocks.length) {
+      const materialized = await materializeExcelProofBlocks(proofBlocks);
+      tempProofDirectory = materialized.tempDirectory;
+      proofBlocks = materialized.blocks;
+      skippedProofImageCount = materialized.skippedImageCount;
+    }
+
     const payload = {
       sourcePath,
-      monthKey: String(body.monthKey || "").trim(),
+      monthKey,
       outputFileName: excelWriteOutputFileName(body.monthKey, body.authorName),
-      generalTravelRows: normalizeExcelWriteRows(body.generalTravelRows),
-      fieldVisitRows: normalizeExcelWriteRows(body.fieldVisitRows),
-      corporateCardRows: normalizeExcelWriteRows(body.corporateCardRows)
+      generalTravelRows,
+      fieldVisitRows,
+      corporateCardRows,
+      proofBlocks,
+      unmatchedProofCount: unmatchedProofImages.length + skippedProofImageCount
     };
     const result = await runExcelWriteAutomation(payload);
     sendJson(response, { ok: true, result });
@@ -760,7 +803,42 @@ async function handleExcelWrite(request, response) {
     sendJson(response, { ok: false, message: error.message }, 500);
   } finally {
     if (tempTemplatePath) await unlink(tempTemplatePath).catch(() => {});
+    if (tempProofDirectory) await rm(tempProofDirectory, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+async function materializeExcelProofBlocks(blocks) {
+  const tempDirectory = join(personalDataRoot, `excel-proof-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await mkdir(tempDirectory, { recursive: true });
+  let imageIndex = 0;
+  let skippedImageCount = 0;
+  const materializedBlocks = [];
+
+  for (const block of blocks) {
+    const images = [];
+    for (const image of block.images || []) {
+      const match = String(image?.dataUri || "").match(/^data:image\/(png|jpe?g|webp);base64,([\s\S]+)$/i);
+      if (!match) {
+        skippedImageCount += 1;
+        continue;
+      }
+      const extension = match[1].toLowerCase() === "jpeg" ? "jpg" : match[1].toLowerCase();
+      const filePath = join(tempDirectory, `${String(++imageIndex).padStart(4, "0")}.${extension}`);
+      await writeFile(filePath, Buffer.from(match[2], "base64"));
+      images.push({
+        type: image.type,
+        name: image.name,
+        path: filePath
+      });
+    }
+    materializedBlocks.push({ ...block, images });
+  }
+
+  return {
+    tempDirectory,
+    blocks: materializedBlocks.filter((block) => block.images.length),
+    skippedImageCount
+  };
 }
 
 function excelWriteOutputFileName(monthKey, authorName) {

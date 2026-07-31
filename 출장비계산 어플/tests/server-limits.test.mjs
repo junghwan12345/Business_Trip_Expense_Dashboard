@@ -9,6 +9,7 @@ import {
 
 test("ppt-build allows larger JSON bodies for selected-folder image uploads", () => {
   assert.equal(jsonBodyLimitForPath("/api/travel-proof/ppt-build"), PPT_JSON_BODY_LIMIT);
+  assert.equal(jsonBodyLimitForPath("/api/travel-proof/excel-write"), PPT_JSON_BODY_LIMIT);
   assert.ok(PPT_JSON_BODY_LIMIT > DEFAULT_JSON_BODY_LIMIT);
 });
 
