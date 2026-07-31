@@ -64,6 +64,14 @@ test("remaining workspaces use the shared card design without removing the sideb
   assert.match(css, /proof-type-chip/);
 });
 
+test("PPT creation stays restorable while its menu entry is removed", async () => {
+  const html = await readFile(new URL("../travel-proof.html", import.meta.url), "utf8");
+
+  assert.doesNotMatch(html, /data-page-target="ppt"/);
+  assert.match(html, /data-page-panel="ppt"/);
+  assert.match(html, /id="createPptButton"/);
+});
+
 test("coupang workspace keeps compact allowance settings and manual entry controls", async () => {
   const html = await readFile(new URL("../travel-proof.html", import.meta.url), "utf8");
   const css = await readFile(new URL("../src/travel-proof/travel-proof.css", import.meta.url), "utf8");
