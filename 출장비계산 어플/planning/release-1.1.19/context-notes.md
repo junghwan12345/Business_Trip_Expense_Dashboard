@@ -13,3 +13,7 @@
 - 패키징된 화면에는 PPT 메뉴가 없고 복구용 PPT 화면 코드는 보존돼 있다.
 - 설치파일 SHA-256은 `cbd7ab22bd516979cb32c2dfaf528aec41be1b3c92e2a730a898a0fbc5f73e8b`다.
 - `validateUpdateManifest`로 1.1.18 기준 업데이트 manifest의 해시와 전자서명을 검증했고 `verified` 결과를 확인했다.
+- 배포 준비 커밋은 `c7370c8`이며 기능 커밋 2개와 함께 `business-trip/main`에 올렸다.
+- GitHub Release `v1.1.19`를 정식 릴리스로 게시했고 설치파일과 `release-manifest.json`을 첨부했다.
+- GitHub의 최신 릴리스가 `v1.1.19`임을 확인했다.
+- 게시된 두 파일을 다시 내려받아 로컬 원본과 SHA-256이 일치함을 확인했다. 원격 manifest SHA-256은 `a200b276308a6e2205e90bd3b0954383d0839f293873126d8fe6cd2b82578245`다.
