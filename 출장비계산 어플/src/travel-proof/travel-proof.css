@@ -4597,6 +4597,20 @@ body:not([data-active-page="distance"]) .distance-header-actions {
   height: 100%;
 }
 
+/* 왼쪽: 캡처 시작 패널(쿠팡·네이버) 세로 배치 / 오른쪽: 캡처 처리 결과 */
+.coupang-workspace .coupang-work-grid > .capture-start-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--coupang-gap);
+  min-width: 0;
+}
+
+.coupang-workspace .capture-start-column > .panel {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
 .coupang-workspace .panel {
   margin-bottom: 0;
   border-radius: var(--coupang-radius);
@@ -5707,6 +5721,10 @@ body:not([data-active-page="distance"]) .distance-header-actions {
   .coupang-work-grid > .panel,
   .storage-admin-grid > .panel {
     height: auto;
+  }
+
+  .coupang-workspace .coupang-work-grid > .capture-start-column {
+    gap: 16px;
   }
 }
 

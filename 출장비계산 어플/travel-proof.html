@@ -6,7 +6,7 @@
     <title>출장비 증빙 도구</title>
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/regular/style.css" />
     <link rel="stylesheet" href="./node_modules/@phosphor-icons/web/src/fill/style.css" />
-    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260802-naver" />
+    <link rel="stylesheet" href="./src/travel-proof/travel-proof.css?v=20260802-naver3" />
     <link rel="stylesheet" href="./src/travel-proof/initial-setup.css?v=20260704-compact" />
   </head>
   <body data-active-page="distance">
@@ -375,43 +375,45 @@
           </div>
 
           <div class="coupang-work-grid">
-          <section class="panel coupang-panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="coupang-capture">
-            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
-              <h2><i class="ph ph-camera"></i>쿠팡 거래명세서 캡처</h2>
-              <div class="coupang-heading-actions">
-                <button class="primary-button" id="runCoupangButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
-                <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+          <div class="capture-start-column">
+            <section class="panel coupang-panel collapsible-panel" data-collapsible-panel>
+              <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="true">
+                <h2><i class="ph ph-camera"></i>쿠팡 거래명세서 캡처</h2>
+                <div class="coupang-heading-actions">
+                  <button class="primary-button" id="runCoupangButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
+                  <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+                </div>
               </div>
-            </div>
-            <p class="folder-label">쿠팡에 로그인된 자동화 Chrome에서 마이쿠팡 주문목록 기준으로 날짜별 거래명세서를 캡처합니다.</p>
-            <div class="coupang-capture-row">
-              <label>
-                캡처 날짜
-                <textarea id="coupangDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
-              </label>
-            </div>
-            <input id="settingsSupplyLimitInput" type="hidden" value="50000" />
-          </section>
-
-          <section class="panel coupang-panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="naver-capture">
-            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
-              <h2><i class="ph ph-camera"></i>네이버페이 영수증 캡처</h2>
-              <div class="coupang-heading-actions">
-                <button class="primary-button" id="runNaverButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
-                <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+              <p class="folder-label">쿠팡에 로그인된 자동화 Chrome에서 마이쿠팡 주문목록 기준으로 날짜별 거래명세서를 캡처합니다.</p>
+              <div class="coupang-capture-row">
+                <label>
+                  캡처 날짜
+                  <textarea id="coupangDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
+                </label>
               </div>
-            </div>
-            <p class="folder-label">네이버에 로그인된 자동화 Chrome에서 네이버페이 쇼핑 결제내역 기준으로 날짜별 영수증을 캡처합니다.</p>
-            <div class="coupang-capture-row">
-              <label>
-                캡처 날짜
-                <textarea id="naverDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
-              </label>
-            </div>
-          </section>
+              <input id="settingsSupplyLimitInput" type="hidden" value="50000" />
+            </section>
 
-          <section class="panel collapsible-panel is-collapsed" data-collapsible-panel data-collapse-group="coupang-capture">
-            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="false">
+            <section class="panel coupang-panel collapsible-panel" data-collapsible-panel>
+              <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="true">
+                <h2><i class="ph ph-camera"></i>네이버페이 영수증 캡처</h2>
+                <div class="coupang-heading-actions">
+                  <button class="primary-button" id="runNaverButton" type="button"><i class="ph-fill ph-play"></i>캡처 시작</button>
+                  <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
+                </div>
+              </div>
+              <p class="folder-label">네이버에 로그인된 자동화 Chrome에서 네이버페이 쇼핑 결제내역 기준으로 날짜별 영수증을 캡처합니다.</p>
+              <div class="coupang-capture-row">
+                <label>
+                  캡처 날짜
+                  <textarea id="naverDatesInput" spellcheck="false" placeholder="06/04, 06/10 또는 줄바꿈으로 여러 날짜 입력"></textarea>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel capture-result-panel collapsible-panel" data-collapsible-panel>
+            <div class="panel-heading collapsible-panel-heading" data-collapsible-heading tabindex="0" role="button" aria-expanded="true">
               <h2><i class="ph ph-check-square-offset"></i>캡처 처리 결과</h2>
               <i class="ph ph-caret-down panel-collapse-caret" aria-hidden="true"></i>
             </div>
@@ -722,6 +724,6 @@
       </main>
     </div>
 
-    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260802-naver"></script>
+    <script type="module" src="./src/travel-proof/travel-proof-app.js?v=20260802-naver3"></script>
   </body>
 </html>

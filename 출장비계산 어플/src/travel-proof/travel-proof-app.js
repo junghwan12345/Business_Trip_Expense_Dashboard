@@ -1636,6 +1636,8 @@ async function prepareTollBatchResults(groups = []) {
 
 async function runCoupangCapture() {
   if (state.running) {
+    // 캡처는 같은 자동화 Chrome을 쓰므로 한 번에 하나만 실행합니다.
+    addCoupangError("다른 캡처가 진행 중입니다. 끝난 뒤에 다시 눌러 주세요.");
     return;
   }
 
@@ -1718,7 +1720,11 @@ async function runCoupangCapture() {
 
 // 네이버페이 쇼핑 영수증 캡처. 저장은 항상 서버에서 처리합니다.
 async function runNaverCapture() {
-  if (state.running) return;
+  if (state.running) {
+    // 캡처는 같은 자동화 Chrome을 쓰므로 한 번에 하나만 실행합니다.
+    addCoupangError("다른 캡처가 진행 중입니다. 끝난 뒤에 다시 눌러 주세요.");
+    return;
+  }
   const dateKeys = parseCoupangCaptureDates(elements.naverDatesInput?.value || "", {
     year: selectedCaptureYear()
   });
