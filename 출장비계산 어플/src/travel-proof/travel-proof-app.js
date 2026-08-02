@@ -353,6 +353,7 @@ Object.assign(elements, {
   syncPendingButton: document.querySelector("#syncPendingButton")
 });
 elements.appVersionLabel = document.querySelector("#appVersionLabel");
+elements.appVersionBadge = document.querySelector("#appVersionBadge");
 elements.updateStatusLabel = document.querySelector("#updateStatusLabel");
 
 const appSettings = readAppSettings();
@@ -642,6 +643,7 @@ async function loadPersonalStorage() {
 async function initializeDesktopBridge() {
   if (!window.desktopBridge) {
     elements.updateRootField.hidden = true;
+    if (elements.appVersionBadge) elements.appVersionBadge.textContent = "개발 모드";
     return;
   }
   elements.updateRootField.hidden = true;
@@ -650,6 +652,7 @@ async function initializeDesktopBridge() {
     window.desktopBridge.getUpdateStatus()
   ]);
   elements.appVersionLabel.textContent = `버전 ${appInfo.version} · 개인 저장 모드`;
+  if (elements.appVersionBadge) elements.appVersionBadge.textContent = `버전 ${appInfo.version}`;
   renderDesktopUpdateStatus(updateStatus);
   window.desktopBridge.onUpdateStatus(renderDesktopUpdateStatus);
 }
@@ -791,7 +794,25 @@ async function connectInitialSetupStorage(storagePath) {
   }
 }
 
+// 같은 버전 안내를 반복해서 띄우지 않도록 기억합니다.
+let notifiedUpdateVersion = "";
+
+function notifyUpdateAvailable(status = {}) {
+  const version = status.manifest?.version || "";
+  if (status.state !== "ready" || !version || notifiedUpdateVersion === version) {
+    return;
+  }
+  notifiedUpdateVersion = version;
+  const install = window.confirm(
+    `새 버전 ${version}이(가) 나왔습니다.\n\n지금 업데이트할까요?\n확인을 누르면 앱이 종료되고 설치가 진행된 뒤 자동으로 다시 시작됩니다.`
+  );
+  if (install && window.desktopBridge?.installUpdate) {
+    window.desktopBridge.installUpdate();
+  }
+}
+
 function renderDesktopUpdateStatus(status = {}) {
+  notifyUpdateAvailable(status);
   if (!elements.updateStatusLabel) return;
   elements.updateStatusLabel.textContent = status.message || "업데이트 확인 전";
   elements.updateStatusLabel.title = status.message || "";

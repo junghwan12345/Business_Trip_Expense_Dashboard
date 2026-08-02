@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +52,7 @@ app.whenReady().then(async () => {
   localServer = await startDesktopServer(startServer);
   createWindow(localServer.port);
   registerDesktopIpc();
+  await cleanupOldUpdateFiles();
   await checkForUpdates();
   updateTimer = setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
 }).catch((error) => {
@@ -70,8 +72,10 @@ app.on("before-quit", (event) => {
   updateStatus = { state: "installing", message: "업데이트를 설치하고 있습니다. 잠시 후 자동으로 다시 시작됩니다." };
   broadcastUpdateStatus();
   const installer = pendingInstaller;
+  // 설치가 끝나면 앱이 자동으로 다시 켜지도록 보조 감시를 띄웁니다.
+  // (설치본이 스스로 재실행하는 경우에는 중복 실행하지 않고 그대로 종료됩니다.)
+  scheduleRelaunchAfterUpdate().catch(() => {});
   // 사용자가 설치 파일을 직접 더블클릭하는 것과 동일하게 실행합니다.
-  // oneClick 설치본이 실행 중인 앱을 스스로 닫고 설치한 뒤 자동으로 다시 시작합니다.
   shell.openPath(installer)
     .then((failureMessage) => {
       if (failureMessage) throw new Error(failureMessage);
@@ -180,6 +184,55 @@ function resolveAppIconPath() {
     fileURLToPath(new URL("../build/app-icon.ico", import.meta.url))
   ];
   return candidates.find((candidate) => existsSync(candidate)) || undefined;
+}
+
+// 업데이트 설치가 끝난 뒤 앱을 다시 켜 주는 보조 스크립트를 띄웁니다.
+// 설치 프로그램이 사라질 때까지 기다렸다가, 앱이 켜져 있지 않을 때만 실행합니다.
+async function scheduleRelaunchAfterUpdate() {
+  const scriptPath = join(appDataRoot, "relaunch-after-update.ps1");
+  const script = [
+    "$ErrorActionPreference = \"SilentlyContinue\"",
+    `$appPath = '${process.execPath.replace(/'/g, "''")}'`,
+    "$appName = [IO.Path]::GetFileNameWithoutExtension($appPath)",
+    "$deadline = (Get-Date).AddMinutes(5)",
+    "Start-Sleep -Seconds 5",
+    "while ((Get-Date) -lt $deadline) {",
+    "  if (-not (Get-Process -Name 'BusinessTripProof-*-Setup' -ErrorAction SilentlyContinue)) { break }",
+    "  Start-Sleep -Seconds 2",
+    "}",
+    "Start-Sleep -Seconds 4",
+    "if (-not (Get-Process -Name $appName -ErrorAction SilentlyContinue)) {",
+    "  if (Test-Path -LiteralPath $appPath) { Start-Process -FilePath $appPath }",
+    "}",
+    ""
+  ].join("\r\n");
+  // PowerShell 5.1이 한글 경로를 올바로 읽도록 BOM을 포함해 저장합니다.
+  await writeFile(scriptPath, `﻿${script}`, "utf8");
+  const child = spawn("powershell.exe", [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    scriptPath
+  ], { detached: true, stdio: "ignore", windowsHide: true });
+  child.unref();
+}
+
+// 설치가 끝난 뒤 남는 예전 버전 설치파일(각 100MB 이상)을 정리합니다.
+// 현재 실행 중인 버전의 설치파일은 되돌릴 때 쓸 수 있으므로 남겨 둡니다.
+async function cleanupOldUpdateFiles() {
+  const updatesRoot = join(appDataRoot, "updates");
+  try {
+    const entries = await readdir(updatesRoot, { withFileTypes: true });
+    const currentVersion = app.getVersion();
+    const removable = entries.filter((entry) => entry.isDirectory() && entry.name !== currentVersion);
+    await Promise.all(removable.map((entry) =>
+      rm(join(updatesRoot, entry.name), { recursive: true, force: true }).catch(() => {})
+    ));
+    return { removed: removable.map((entry) => entry.name) };
+  } catch {
+    return { removed: [] };
+  }
 }
 
 async function checkForUpdates() {
