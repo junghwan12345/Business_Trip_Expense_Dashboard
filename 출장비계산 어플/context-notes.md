@@ -159,3 +159,80 @@
 - 1.1.10에서는 데스크톱 기본 포트를 41731로 고정하고, 포트가 이미 사용 중일 때만 임시 포트로 fallback한다.
 - app-state.json을 개인 데이터 폴더(settings/app-state.json)에 추가해 appSettings, generalTravelEntries, fuelRows, tollRows를 함께 백업한다. 시작 시 현재 localStorage가 비어 있을 때 백업값을 복원한다.
 - 이 수정은 다음 버전부터 업데이트 후 데이터 유실 재발을 막기 위한 구조다. 이미 구버전의 랜덤 포트 origin에만 남은 데이터는 자동 접근이 제한될 수 있다.
+
+# 2026-08-02 네이버페이 영수증 캡처 - 설계 메모
+## 기존 쿠팡 구현에서 재사용 가능한 것 (조사 결과)
+- receiptFileBaseName({ dateKey, amountWon, site }) 에 site 파라미터가 이미 있음(기본값 "쿠팡").
+  네이버는 site="네이버"만 넘기면 파일명 규칙 그대로 사용 가능.
+- classifyCoupangReceipt(items) 는 품목 텍스트 키워드 기반이라 사이트 무관하게 재사용 가능.
+- COUPANG_PROOF_FOLDERS(조활비/소모품비/기타/확인필요) 저장 구조도 공용.
+- 자동화 Chrome은 디버깅 포트 9222 + 고정 프로필을 쓰며, 로그인은 사용자가 직접 수행한다.
+  앱이 아이디/비밀번호를 저장하거나 입력하지 않는다. 네이버도 동일 원칙을 유지한다.
+- 영수증 캡처는 CDP Page.captureScreenshot + clip(문서 전체 높이 계산) 방식.
+  네이버는 영수증이 길 수 있으므로 captureBeyondViewport: true 를 함께 사용할 예정.
+
+## 새로 필요한 것
+- server.mjs 의 normalizeLedgerEntry 는 source 화이트리스트가
+  ["manual", "coupang", "corporateCard"] 이므로 "naver" 추가 필요.
+  (추가하지 않으면 네이버 항목이 coupang 으로 기록됨)
+- 네이버페이 영수증 텍스트 판독기는 쿠팡과 형식이 달라 별도 구현 필요.
+
+## 미확인 사항 (1단계 탐색에서 확인)
+- pay.naver.com 결제내역의 DOM 구조는 로그인해야 확인 가능
+- 영수증이 새 창(팝업)으로 열리는지, 같은 창 모달인지
+- 네이버쇼핑 주문만 골라내는 판별 기준
+
+## 2026-08-02 1단계 탐색 결과 (실제 로그인 상태에서 확인)
+### 화면 경로와 URL (클릭 없이 직접 이동 가능)
+- 쇼핑만 필터: https://pay.naver.com/pc/history?page=1&serviceChannel=SHOPPING
+  (상단 "쇼핑" 버튼 클릭과 동일. URL 직접 이동이 더 안정적)
+- 주문 상세: https://orders.pay.naver.com/order/status/{주문번호}
+- 영수증 팝업: https://pay.naver.com/receipts/issue-history?orderNo={주문번호}
+  → "영수증" 버튼 클릭 시 새 창으로 이 URL이 열림. 클릭 없이 바로 이동 가능.
+
+### DOM 구조
+- 목록 항목: li 중 innerText에 "결제일시" 포함되는 것 (15건/페이지)
+- 주문상세 링크: li 안의 a 중 텍스트가 "주문 상세 보기"
+  (li의 첫 a[href]는 가맹점 외부 링크이므로 사용하면 안 됨)
+- 영수증 버튼: 주문상세 페이지의 button 중 텍스트가 정확히 "영수증"
+- 클래스명은 CSS Modules 해시(PaymentItem_item-payment__gh8OB 등)라 네이버 배포 시 바뀔 수 있음.
+  → 클래스 대신 "텍스트 기준 탐색"을 사용할 것.
+
+### 데이터 출처 설계
+- 날짜/총금액: 목록 페이지에서 취득 (결제일시 "7. 10. 02:10", 금액 "49,100원").
+  목록의 날짜에는 연도가 없음 → 주문번호 앞 8자리(20260710)로 연도 보정 가능.
+- 품목: 영수증 팝업의 상품명들 (분류 키워드 판정에 사용)
+- 영수증 팝업에는 결제일시가 없고 주문번호만 있음.
+
+### 캡처 검증
+- 영수증 팝업 문서 크기 1269 x 2030 (뷰포트 744) → 스크롤 필요
+- Page.captureScreenshot + captureBeyondViewport:true + clip(문서 전체) 로 전체 캡처 성공 확인
+- 페이지 하단 약 절반이 "현금영수증 안내" 고정 안내문구임 (증빙과 무관할 수 있음)
+
+### 캡처 범위 확정 (B안: 안내문·여백 제외)
+- 하단 경계: '현금영수증 안내' 요소의 top - 12px.
+  없으면 '신용카드 매출전표는'을 포함한 요소의 bottom + 16px, 그것도 없으면 문서 전체 높이.
+- 좌우/상단 경계: 보이는 leaf 요소들의 bounding box 합집합 (padding 16px).
+  단, 폭/높이 8px 미만 요소는 제외해야 함.
+  (헤더의 '네이버페이', '뒤로가기' 스크린리더용 1px 텍스트가 왼쪽 여백을 만들었음)
+- 결과: 전체 1269x2030 -> 영수증 영역 713x1426 (실제 이미지는 화면배율 125% 반영해 891x1783)
+
+### 캡처 시 주의점 (실측)
+- 같은 탭에서 Page.captureScreenshot(captureBeyondViewport)을 반복 호출하면 응답이 오지 않고 멈추는 현상 발생.
+  -> 영수증마다 새 탭을 열고 캡처한 뒤 탭을 닫는 방식으로 구현할 것. (재현/해결 확인 완료)
+- CDP 호출에는 타임아웃을 걸어야 함(30초). 멈춤 시 다음 건으로 넘어가도록 처리.
+
+## 2026-08-02 네이버페이 캡처 구현 완료 (실측 검증)
+- captureNaverPayReceipts({dateKeys}) 추가. 목록 URL 직접 이동(serviceChannel=SHOPPING) 후
+  li 중 "결제일시" 포함 항목에서 주문번호/날짜/금액을 읽고, 영수증 URL을 새 탭으로 열어 캡처.
+- 금액은 목록 페이지 값을 우선 사용(영수증 화면은 항목별 금액만 있고 합계가 없음).
+- 서버는 handleReceiptCaptureSave 로 쿠팡·네이버 공통 처리(site/source 파라미터화).
+  coupangLedgerEntryId -> receiptLedgerEntryId(receipt, source) 로 일반화.
+- 분류 변경 시 파일 이동, 금액 0 항목 skip 판정도 isCapturedReceiptSource 로 네이버 포함.
+
+### 검증 결과
+- 2026-07-10: 49,100원 / 주문 2026071024077731 / 3초 / 이미지 278KB
+- 2026-04-20: 22,900원 (목록 뒤쪽 주문도 정상 탐색)
+- 2026-01-01: "주문을 찾지 못했습니다" 정상 실패 처리
+- 서버 저장: {출력폴더}/2026-07/확인필요/2026-07-10_49100_네이버.png
+- 사용 이력에 [naver] source 로 등록 확인

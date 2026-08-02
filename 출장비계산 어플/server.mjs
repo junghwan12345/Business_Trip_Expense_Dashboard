@@ -232,6 +232,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/api/travel-proof/naver-capture-save" && request.method === "POST") {
+    await handleNaverPayCaptureSave(request, response);
+    return;
+  }
+
   if (url.pathname === "/api/travel-proof/ppt-create" && request.method === "POST") {
     await handleProofPptCreate(request, response);
     return;
@@ -590,7 +595,7 @@ async function handleExpenseLedgerUpsert(request, response) {
       }
       const normalized = normalizeLedgerEntry(incoming, nowIso);
       const previous = byId.get(normalized.id);
-      if (previous?.savedPath && normalized.source === "coupang" && normalized.status === "confirmed" && normalized.type !== previous.type) {
+      if (previous?.savedPath && isCapturedReceiptSource(normalized.source) && normalized.status === "confirmed" && normalized.type !== previous.type) {
         normalized.savedPath = await moveLedgerProofFile(previous.savedPath, normalized);
       }
       byId.set(normalized.id, {
@@ -1128,20 +1133,38 @@ async function handleCoupangProofCapture(request, response) {
   }
 }
 
+async function handleNaverPayCaptureSave(request, response) {
+  const { captureNaverPayReceipts } = await loadAutomationModule();
+  await handleReceiptCaptureSave(request, response, {
+    site: "네이버",
+    source: "naver",
+    capture: (dateKeys) => captureNaverPayReceipts({ dateKeys })
+  });
+}
+
 async function handleCoupangProofCaptureSave(request, response) {
+  const { captureCoupangReceipts } = await loadAutomationModule();
+  await handleReceiptCaptureSave(request, response, {
+    site: "쿠팡",
+    source: "coupang",
+    capture: (dateKeys) => captureCoupangReceipts({ dateKeys })
+  });
+}
+
+// 쿠팡·네이버 영수증 캡처 결과를 저장하고 사용 이력에 반영하는 공통 처리
+async function handleReceiptCaptureSave(request, response, { site, source, capture }) {
   try {
     const body = await readJsonBody(request);
     const outputRoot = body.outputRoot || await storageRootFor("coupang");
-    const { captureCoupangReceipts } = await loadAutomationModule();
-    const result = await captureCoupangReceipts({ dateKeys: body.dateKeys || [] });
+    const result = await capture(body.dateKeys || []);
     const savedResults = [];
     const existingLedger = await readExpenseLedger();
     const existingLedgerById = new Map((existingLedger.entries || []).map((entry) => [entry.id, entry]));
     const seenReceiptKeys = new Set();
 
     for (const receipt of result.results || []) {
-      const ledgerId = coupangLedgerEntryId(receipt);
-      const receiptKey = coupangReceiptDuplicateKey(receipt);
+      const ledgerId = receiptLedgerEntryId(receipt, source);
+      const receiptKey = receiptDuplicateKey(receipt);
       if (seenReceiptKeys.has(receiptKey)) {
         savedResults.push({ ...receipt, duplicate: true });
         continue;
@@ -1165,7 +1188,7 @@ async function handleCoupangProofCaptureSave(request, response) {
       const baseName = receiptFileBaseName({
         dateKey: receipt.dateKey,
         amountWon: receipt.amountWon,
-        site: "쿠팡"
+        site
       });
       const fileName = nextAvailableFileName(outputDirectory, `${baseName}.png`);
       const filePath = join(outputDirectory, fileName);
@@ -1181,7 +1204,7 @@ async function handleCoupangProofCaptureSave(request, response) {
     const ledgerEntries = savedResults
       .filter((receipt) => Number(receipt.amountWon) > 0)
       .filter((receipt) => !receipt.duplicate)
-      .map(receiptToLedgerEntry);
+      .map((receipt) => receiptToLedgerEntry(receipt, source));
     const ledger = ledgerEntries.length
       ? await upsertLedgerEntries(ledgerEntries)
       : await readExpenseLedger();
@@ -1446,8 +1469,13 @@ function normalizeExpenseLedgerEntries(entries) {
   return normalizedEntries;
 }
 
+// 쿠팡·네이버처럼 영수증 캡처로 만들어진 항목인지 확인합니다.
+function isCapturedReceiptSource(source) {
+  return source === "coupang" || source === "naver";
+}
+
 function shouldSkipInvalidCoupangLedgerEntry(entry) {
-  return entry?.source === "coupang" && !(Number(entry?.amountWon) > 0);
+  return isCapturedReceiptSource(entry?.source) && !(Number(entry?.amountWon) > 0);
 }
 
 async function writeExpenseLedger(ledger) {
@@ -1506,7 +1534,7 @@ async function upsertLedgerEntries(entries) {
     }
     const normalized = normalizeLedgerEntry(entry, nowIso);
     const previous = byId.get(normalized.id);
-    if (previous?.savedPath && normalized.source === "coupang" && normalized.status === "confirmed" && normalized.type !== previous.type) {
+    if (previous?.savedPath && isCapturedReceiptSource(normalized.source) && normalized.status === "confirmed" && normalized.type !== previous.type) {
       normalized.savedPath = await moveLedgerProofFile(previous.savedPath, normalized);
     }
     byId.set(normalized.id, {
@@ -1558,13 +1586,13 @@ async function deleteLedgerProofFile(savedPath) {
   await unlink(filePath).catch(() => {});
 }
 
-function receiptToLedgerEntry(receipt) {
+function receiptToLedgerEntry(receipt, source = "coupang") {
   const category = ["welfare", "supply"].includes(receipt.category) ? receipt.category : "review";
   return {
-    id: coupangLedgerEntryId(receipt),
+    id: receiptLedgerEntryId(receipt, source),
     dateKey: receipt.dateKey || receipt.requestedDateKey || "",
     type: category,
-    source: "coupang",
+    source,
     amountWon: receipt.amountWon || 0,
     items: receipt.items || [],
     memo: receipt.reasons?.length ? `분류 근거: ${receipt.reasons.join(", ")}` : "",
@@ -1575,11 +1603,11 @@ function receiptToLedgerEntry(receipt) {
   };
 }
 
-function coupangLedgerEntryId(receipt) {
-  return `coupang:${receipt.orderId || receipt.requestedDateKey || receipt.dateKey}:${receipt.amountWon || 0}:${receipt.dateKey || ""}`;
+function receiptLedgerEntryId(receipt, source = "coupang") {
+  return `${source}:${receipt.orderId || receipt.requestedDateKey || receipt.dateKey}:${receipt.amountWon || 0}:${receipt.dateKey || ""}`;
 }
 
-function coupangReceiptDuplicateKey(receipt) {
+function receiptDuplicateKey(receipt) {
   return [
     receipt.orderId || "",
     receipt.dateKey || receipt.requestedDateKey || "",
@@ -1589,7 +1617,7 @@ function coupangReceiptDuplicateKey(receipt) {
 }
 
 function normalizeLedgerEntry(entry, nowIso = new Date().toISOString()) {
-  const source = ["manual", "coupang", "corporateCard"].includes(entry?.source) ? entry.source : "coupang";
+  const source = ["manual", "coupang", "naver", "corporateCard"].includes(entry?.source) ? entry.source : "coupang";
   const type = ["welfare", "supply", "other", "review"].includes(entry?.type) ? entry.type : "review";
   const status = entry?.status === "confirmed" ? "confirmed" : "review";
   const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.dateKey || "")) ? String(entry.dateKey) : "";

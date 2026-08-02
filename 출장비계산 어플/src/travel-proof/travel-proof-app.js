@@ -245,6 +245,8 @@ const elements = {
   pptStatus: document.querySelector("#pptStatus"),
   coupangPeopleInput: document.querySelector("#coupangPeopleInput"),
   coupangDatesInput: document.querySelector("#coupangDatesInput"),
+  naverDatesInput: document.querySelector("#naverDatesInput"),
+  runNaverButton: document.querySelector("#runNaverButton"),
   coupangLimitSummary: document.querySelector("#coupangLimitSummary"),
   welfareLimitCard: document.querySelector("#welfareLimitCard"),
   welfarePeriodTitle: document.querySelector("#welfarePeriodTitle"),
@@ -444,6 +446,7 @@ elements.refreshStorageButton?.addEventListener("click", () => {
 });
 elements.refreshStoragePreviewButton?.addEventListener("click", refreshStoragePreview);
 elements.runCoupangButton.addEventListener("click", runCoupangCapture);
+elements.runNaverButton?.addEventListener("click", runNaverCapture);
 elements.refreshLedgerButton?.addEventListener("click", loadExpenseLedger);
 elements.addManualExpenseButton?.addEventListener("click", addManualExpenseEntry);
 elements.toggleManualExpenseButton?.addEventListener("click", () => {
@@ -1706,6 +1709,51 @@ async function runCoupangCapture() {
     renderCoupangLimitSummary();
   } catch (error) {
     addCoupangError(`쿠팡 캡처 실패: ${error.message}`);
+  } finally {
+    state.running = false;
+    setBusy(false);
+    await finishAutomationSession();
+  }
+}
+
+// 네이버페이 쇼핑 영수증 캡처. 저장은 항상 서버에서 처리합니다.
+async function runNaverCapture() {
+  if (state.running) return;
+  const dateKeys = parseCoupangCaptureDates(elements.naverDatesInput?.value || "", {
+    year: selectedCaptureYear()
+  });
+  if (!dateKeys.length) {
+    addCoupangError("캡처할 날짜를 입력해 주세요.");
+    return;
+  }
+
+  state.running = true;
+  setBusy(true, "네이버페이 영수증 캡처 중...");
+  try {
+    const response = await fetch("/api/travel-proof/naver-capture-save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dateKeys })
+    });
+    const data = await readApiJson(response, "네이버페이 캡처 API를 찾지 못했습니다. 앱을 재시작해 주세요.");
+    if (!data.ok) {
+      throw new Error(data.message);
+    }
+
+    for (const receipt of data.result.results || []) {
+      addCoupangResult(receipt);
+      if (!receipt.duplicate) {
+        state.coupangEntries.push(receipt);
+      }
+    }
+    for (const failure of data.result.failures || []) {
+      addCoupangError(`${failure.dateKey}: ${failure.message}`);
+    }
+
+    await loadExpenseLedger();
+    renderCoupangLimitSummary();
+  } catch (error) {
+    addCoupangError(`네이버페이 캡처 실패: ${error.message}`);
   } finally {
     state.running = false;
     setBusy(false);

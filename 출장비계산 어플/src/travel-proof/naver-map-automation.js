@@ -10,6 +10,12 @@ import {
   parseCoupangReceiptText,
   receiptFileBaseName
 } from "./coupang-proof.js";
+import {
+  naverPayHistoryPageUrl,
+  naverPayListDateKey,
+  naverPayReceiptUrl,
+  parseNaverPayReceiptText
+} from "./naver-pay-proof.js";
 import { extractRouteDistanceKm, parseFuelPriceWon } from "./travel-proof.js";
 import { parseHipassReceiptText } from "./hipass-toll.js";
 import {
@@ -25,6 +31,8 @@ const HIPASS_USAGE_URL = "https://www.hipass.co.kr/usepculr/InitUsePculrTabSearc
 const HIPASS_LOGIN_WAIT_MS = 3 * 60 * 1000;
 const COUPANG_LOGIN_WAIT_MS = 5 * 60 * 1000;
 const COUPANG_ORDER_SEARCH_PAGES = 12;
+const NAVER_PAY_LOGIN_WAIT_MS = 5 * 60 * 1000;
+const NAVER_PAY_SEARCH_PAGES = 10;
 const COUPANG_ORDER_SEARCH_SCROLLS = 14;
 const DEFAULT_FAST_CAPTURE_ENABLED = process.env.TRAVEL_PROOF_FAST_CAPTURE !== "0";
 const OIL_QUOTE_URL = "https://finance.naver.com/marketindex/oilDailyQuote.naver?marketindexCd=OIL_GSL";
@@ -292,6 +300,208 @@ export async function captureCoupangReceipts({ dateKeys = [] } = {}, options = {
       await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.id}`).catch(() => {});
     }
   }
+}
+
+// 네이버페이 쇼핑 결제내역에서 날짜에 해당하는 주문을 찾아 영수증 화면을 캡처합니다.
+export async function captureNaverPayReceipts({ dateKeys = [] } = {}, options = {}) {
+  const endpoint = await ensureChrome(options);
+  const tab = await createTab(endpoint);
+  const client = await CdpClient.connect(tab.webSocketDebuggerUrl, tab.id);
+  const results = [];
+  const failures = [];
+
+  try {
+    await client.call("Page.enable");
+    await client.call("Runtime.enable");
+    await navigate(client, naverPayHistoryPageUrl(1));
+    await waitForNaverPayHistory(client);
+
+    const wanted = new Set(dateKeys);
+    const orders = await collectNaverPayOrders(client, wanted);
+
+    for (const dateKey of dateKeys) {
+      const matched = orders.filter((order) => order.dateKey === dateKey);
+      if (!matched.length) {
+        failures.push({ dateKey, message: `${dateKey} 네이버페이 쇼핑 주문을 찾지 못했습니다.` });
+        continue;
+      }
+      for (const order of matched) {
+        try {
+          results.push(await captureNaverPayReceipt(endpoint, order, dateKey));
+        } catch (error) {
+          failures.push({ dateKey, message: `${dateKey} 영수증 캡처 실패: ${error.message}` });
+        }
+      }
+    }
+
+    return { results, failures };
+  } finally {
+    await client.close();
+    if (!options.keepOpen) {
+      await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.id}`).catch(() => {});
+    }
+  }
+}
+
+async function waitForNaverPayHistory(client) {
+  const ok = await waitUntil(async () => {
+    const result = await evaluate(client, `
+      (() => {
+        const text = document.body?.innerText || '';
+        const isLogin = location.href.includes('nidlogin') || location.href.includes('nid.naver.com');
+        const hasList = location.href.includes('pay.naver.com') &&
+          (text.includes('결제일시') || text.includes('결제 내역이 없') || text.includes('내역이 없습니다'));
+        return !isLogin && hasList;
+      })()
+    `, true).catch(() => null);
+    return Boolean(result?.result?.result?.value);
+  }, NAVER_PAY_LOGIN_WAIT_MS);
+
+  if (!ok) {
+    throw new Error("네이버 로그인 완료를 확인하지 못했습니다. 열린 자동화 Chrome에서 로그인 후 네이버페이 결제내역이 보일 때까지 기다려 주세요.");
+  }
+}
+
+// 필요한 날짜가 모두 나올 때까지 목록 페이지를 넘기며 주문을 모읍니다.
+async function collectNaverPayOrders(client, wantedDateKeys) {
+  const collected = new Map();
+  for (let page = 1; page <= NAVER_PAY_SEARCH_PAGES; page += 1) {
+    if (page > 1) {
+      await navigate(client, naverPayHistoryPageUrl(page));
+      await waitForNaverPayHistory(client);
+    }
+    const pageOrders = await readNaverPayOrdersOnPage(client);
+    if (!pageOrders.length) break;
+
+    for (const order of pageOrders) {
+      const dateKey = naverPayListDateKey(order.dateText, { orderNo: order.orderNo });
+      if (!order.orderNo || !dateKey) continue;
+      if (!collected.has(order.orderNo)) {
+        collected.set(order.orderNo, { ...order, dateKey });
+      }
+    }
+
+    // 목록은 최신순이므로, 찾는 날짜보다 오래된 주문까지 왔으면 더 볼 필요가 없습니다.
+    const oldestWanted = [...wantedDateKeys].sort()[0];
+    const oldestOnPage = pageOrders
+      .map((order) => naverPayListDateKey(order.dateText, { orderNo: order.orderNo }))
+      .filter(Boolean)
+      .sort()[0];
+    if (oldestWanted && oldestOnPage && oldestOnPage < oldestWanted) break;
+  }
+  return [...collected.values()];
+}
+
+async function readNaverPayOrdersOnPage(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const items = [...document.querySelectorAll('li')].filter((li) => (li.innerText || '').includes('결제일시'));
+      return items.map((li) => {
+        const detail = [...li.querySelectorAll('a')].find((el) => (el.textContent || '').trim() === '주문 상세 보기');
+        const href = detail ? detail.getAttribute('href') || '' : '';
+        const orderNo = (href.match(/order\\/status\\/(\\d+)/) || [])[1] || '';
+        const text = (li.innerText || '').replace(/\\n+/g, ' ');
+        const dateText = (text.match(/(\\d{1,2})\\s*\\.\\s*(\\d{1,2})\\s*\\.\\s*(\\d{1,2}):(\\d{2})/) || [])[0] || '';
+        const amountText = (text.match(/([\\d,]+)\\s*원/) || [])[0] || '';
+        const title = (li.innerText || '').split('\\n').map((line) => line.trim())
+          .filter((line) => line && !['자세히 보기', '주문 상세 보기', '더보기', '결제일시'].includes(line))
+          .find((line) => !/^[\\d,]+원$/.test(line) && !/결제완료|구매확정완료|취소|반품|^총$|^\\d+$|^건$/.test(line)) || '';
+        return { orderNo, dateText, amountText, title };
+      }).filter((order) => order.orderNo);
+    })()
+  `, true);
+  return result?.result?.result?.value || [];
+}
+
+// 영수증마다 새 탭을 열어 캡처합니다. (같은 탭에서 반복 캡처하면 응답이 멈추는 문제가 있었습니다)
+async function captureNaverPayReceipt(endpoint, order, requestedDateKey) {
+  const receiptUrl = naverPayReceiptUrl(order.orderNo);
+  const response = await fetch(`${endpoint}/json/new?${encodeURIComponent(receiptUrl)}`, { method: "PUT" });
+  if (!response.ok) throw new Error("영수증 창을 열지 못했습니다.");
+  const receiptTab = await response.json();
+  const receiptClient = await CdpClient.connect(receiptTab.webSocketDebuggerUrl, receiptTab.id);
+
+  try {
+    await receiptClient.call("Page.enable");
+    const loaded = await waitUntil(async () => {
+      const check = await evaluate(receiptClient, `(document.body?.innerText || '').includes('주문번호')`, true).catch(() => null);
+      return Boolean(check?.result?.result?.value);
+    }, 30000);
+    if (!loaded) throw new Error("영수증 화면을 읽지 못했습니다.");
+
+    const textResult = await evaluate(receiptClient, `document.body.innerText`, true);
+    const receiptText = textResult?.result?.result?.value || "";
+    const parsed = parseNaverPayReceiptText(receiptText);
+    const dateKey = order.dateKey || parsed.dateKey || requestedDateKey;
+    const amountWon = parseWonText(order.amountText) || parsed.amountWon;
+    const items = parsed.items.length ? parsed.items : [order.title].filter(Boolean);
+    const classification = classifyCoupangReceipt(items);
+    const clip = await getNaverPayReceiptClip(receiptClient);
+    const screenshot = await receiptClient.call("Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: true,
+      clip
+    });
+
+    return {
+      dateKey,
+      requestedDateKey,
+      orderId: order.orderNo,
+      amountWon,
+      items,
+      category: classification.category,
+      categoryLabel: classification.label,
+      reasons: classification.reasons,
+      fileName: `${receiptFileBaseName({ dateKey, amountWon, site: "네이버" })}.png`,
+      imageBase64: screenshot.result.data,
+      summaryText: parsed.rawText.slice(0, 2000)
+    };
+  } finally {
+    await receiptClient.close();
+    await fetch(`${endpoint}/json/close/${receiptTab.id}`).catch(() => {});
+  }
+}
+
+// 하단 안내문과 좌우 여백을 제외하고 영수증 내용만 잘라냅니다.
+async function getNaverPayReceiptClip(client) {
+  const result = await evaluate(client, `
+    (() => {
+      const all = [...document.querySelectorAll('*')];
+      const leaf = (el) => el.children.length === 0 && (el.textContent || '').trim();
+      const guide = all.find((el) => leaf(el) === '현금영수증 안내');
+      const lastLine = all.find((el) => el.children.length === 0 && (el.textContent || '').includes('신용카드 매출전표는'));
+      let bottom = document.documentElement.scrollHeight;
+      if (guide) bottom = Math.round(guide.getBoundingClientRect().top + window.scrollY) - 12;
+      else if (lastLine) bottom = Math.round(lastLine.getBoundingClientRect().bottom + window.scrollY) + 16;
+
+      let minLeft = Infinity, maxRight = -Infinity, minTop = Infinity;
+      for (const el of all) {
+        if (!leaf(el)) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 8 || rect.height < 8) continue;
+        const top = rect.top + window.scrollY;
+        if (top >= bottom) continue;
+        minLeft = Math.min(minLeft, rect.left + window.scrollX);
+        maxRight = Math.max(maxRight, rect.right + window.scrollX);
+        minTop = Math.min(minTop, top);
+      }
+      if (!Number.isFinite(minLeft)) return null;
+      const pad = 16;
+      const x = Math.max(0, Math.floor(minLeft - pad));
+      const y = Math.max(0, Math.floor(minTop - pad));
+      return {
+        x, y,
+        width: Math.min(document.documentElement.scrollWidth - x, Math.ceil(maxRight - minLeft + pad * 2)),
+        height: Math.max(300, Math.ceil(bottom - y)),
+        scale: 1
+      };
+    })()
+  `, true);
+  return result?.result?.result?.value || { x: 0, y: 0, width: 760, height: 1200, scale: 1 };
+}
+
+function parseWonText(value) {
+  return Number(String(value || "").replace(/[^0-9]/g, "")) || 0;
 }
 
 export async function captureHipassTollReceipt(dateKey, options = {}) {
